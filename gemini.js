@@ -242,7 +242,8 @@ function geminiSetup(st) {
   };
   if (!st.basic) {
     setup.sessionResumption = st.handle ? { handle: st.handle } : {};
-    // less eager speech detection, so background noise does not start a turn
+    // long talks: let Gemini drop the oldest audio instead of ending the session when its memory fills up
+    setup.contextWindowCompression = { slidingWindow: {} };
     // start of speech a little less eager (background noise); end of speech left at Gemini's fast default
     setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW' } };
   }
@@ -264,14 +265,32 @@ function openGeminiSocket(st) {
   };
   ws.onclose = (e) => {
     if (gl !== st || st.ws !== ws || st.closing) return;
+    const why = e.reason ? ': ' + e.reason : ` (code ${e.code})`;
     if (!st.setupDone) {
-      if (!st.basic) { st.basic = true; openGeminiSocket(st); return; } // retry with the simplest setup
-      endGemini('Gemini refused the call' + (e.reason ? ': ' + e.reason : ` (code ${e.code})`) + '. Check the Gemini key and the Live model in Settings.', true);
+      if (st.t0) { if (recoverGemini(st)) return; } // the call had been running: start a fresh session instead
+      else if (!st.basic) { st.basic = true; openGeminiSocket(st); return; } // first connect: retry with the simplest setup
+      endGemini(st.t0 ? 'Lost the connection to Gemini' + why + '. Tap the circle to start again; the chat is kept.'
+        : 'Gemini refused the call' + why + '. Check the Gemini key and the Live model in Settings.', true);
       return;
     }
     if (st.handle && st.reconnects < 6) { st.reconnects++; setStatus('Reconnecting...'); openGeminiSocket(st); return; }
+    if (e.code !== 1000 && recoverGemini(st)) return;
     endGemini(e.reason ? 'Gemini ended the call: ' + e.reason : 'The Gemini call ended.', !!e.reason && e.code !== 1000);
   };
+}
+/* A running call dropped and could not be resumed (Gemini often answers "Internal error" to an old
+   resume handle). Start a brand-new session that gets the last few exchanges, up to 3 times in a row. */
+function recoverGemini(st) {
+  st.recovers = (st.recovers || 0) + 1;
+  if (st.recovers > 3) return false;
+  st.handle = null; st.basic = false; st.reconnects = 0;
+  if (st.kind === 'talk') st.carry = recentConversation();
+  st.started = false;
+  st.note = st.kind === 'repeat' ? "We got disconnected for a moment. Let's continue the drill." : "We got disconnected for a moment. Let's continue where we were.";
+  cutPlayback(st);
+  setStatus('Connection dropped. Reconnecting...');
+  setTimeout(() => { if (gl === st && !st.closing) openGeminiSocket(st); }, 500 * st.recovers);
+  return true;
 }
 function onMicChunk(st, f32) {
   if (!st.setupDone || !st.ws || st.ws.readyState !== 1) return;
@@ -354,6 +373,7 @@ function finishMyTurn(st) {
 function onGeminiMsg(st, msg) {
   if (msg.setupComplete) {
     st.setupDone = true;
+    if (st.recovers) setTimeout(() => { if (gl === st && st.setupDone) st.recovers = 0; }, 20000); // stayed up: allow new recoveries later
     if (!st.t0) {
       st.t0 = performance.now();
       st.timer = setInterval(() => {
