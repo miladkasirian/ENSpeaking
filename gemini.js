@@ -304,16 +304,19 @@ const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
   if (S.bargeIn) return true;
   const now = st.ctx.currentTime;
-  const talking = st.playT && now < st.playT + 0.6;
-  if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.preroll = []; return true; }
+  // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
+  const talking = st.playT && now < st.playT + (IS_IOS ? 1.2 : 0.7);
+  if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.preroll = []; st.loud = 0; return true; }
   if (!st.replyStart) st.replyStart = now;
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
   // keep the last 0.2 s so the start of your words is not lost if the gate opens
   st.preroll = (st.preroll || []).concat(chunk).slice(-5);
   const floor = st.echoFloor || 0.02;
-  const learning = now - st.replyStart < 0.5; // first half second of each reply: only learn the echo level
-  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.gateOpenUntil = now + 1.2; return true; }
-  st.echoFloor = floor * 0.9 + rms * 0.1;
+  const learning = now - st.replyStart < 0.6; // start of each reply: only learn the echo level
+  // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
+  if (!learning && rms > Math.max(0.12, floor * 5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 4) { st.gateOpenUntil = now + 1.2; return true; } return false; }
+  st.loud = 0;
+  st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
   return false;
 }
 function playPcm24(st, b64) {
@@ -342,6 +345,7 @@ function finishMyTurn(st) {
   st.me = null; st.meText = '';
   b.classList.remove('pending');
   if (isNoise(text)) { b.remove(); return; } // only background noise was heard
+  if (isEcho(text, [st.aiText, lastAiTurn.text, st.prevAi])) { b.remove(); return; } // the partner's own voice from the speaker
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
   persistChat();
@@ -412,7 +416,7 @@ function onGeminiMsg(st, msg) {
   }
   if (sc.turnComplete) {
     finishMyTurn(st);
-    if (st.ai && st.aiText.trim()) { history.push({ role: 'assistant', content: st.aiText.trim() }); history = history.slice(-16); liveTalkTurnDone(st.aiText.trim()); }
+    if (st.ai && st.aiText.trim()) { st.prevAi = lastAiTurn.text; history.push({ role: 'assistant', content: st.aiText.trim() }); history = history.slice(-16); liveTalkTurnDone(st.aiText.trim()); }
     st.ai = null; st.aiText = '';
     persistChat();
   }

@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.16.2 (2026-10-02)';
+const VERSION = '2.16.3 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -683,6 +683,22 @@ function isNoise(text) {
   if (!t || !/\p{L}/u.test(t)) return true;
   return /^(uh+|um+|hm+|mm+|ah+|oh+|eh+|huh|uh-huh|mhm|hmm+)[\s.,!?…-]*$/i.test(t);
 }
+/* Is this "what I heard" really the partner's own voice coming back from the speaker?
+   True when the words appear, in order, in what the partner just said. A sentence you are
+   practicing is never treated as echo, since you are meant to repeat it. */
+function isEcho(text, aiTexts) {
+  const mine = words(text); if (!mine.length) return false;
+  if (talkDrill && mentions(text, talkDrill.sentence, 0.5)) return false;
+  return aiTexts.some((t) => {
+    const ai = words(t || ''); if (!ai.length) return false;
+    let best = 0; // longest run of my words found in a row in the partner's words
+    for (let i = 0; i < ai.length; i++) for (let j = 0; j < mine.length; j++) {
+      let k = 0; while (i + k < ai.length && j + k < mine.length && ai[i + k] === mine[j + k]) k++;
+      if (k > best) best = k;
+    }
+    return mine.length <= 2 ? best === mine.length : best / mine.length >= 0.75;
+  });
+}
 function bubble(log, who, text, opts = {}) {
   const b = el('div', 'msg ' + (who === 'me' ? 'me' : 'ai') + (opts.pending ? ' pending' : ''));
   b.innerHTML = `<div class="who">${who === 'me' ? (opts.typed ? 'You wrote' : 'I heard') : 'Partner'}</div><div class="txt" dir="auto">${esc(text)}</div>`;
@@ -1099,6 +1115,7 @@ function onRtEvent(ev) {
     const text = String(ev.transcript || '').trim();
     if (b) { b.classList.remove('pending'); b.querySelector('.txt').textContent = text || '(not clear)'; }
     if (isNoise(text)) { if (b) b.remove(); return; } // only background noise was heard
+    if (isEcho(text, [lastAiTurn.text])) { if (b) b.remove(); return; } // the partner's own voice from the speaker
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
