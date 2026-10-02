@@ -364,15 +364,26 @@ function onMicChunk(st, f32) {
   const now = st.ctx.currentTime;
   // the last half second, so nothing you say right after the partner stops is lost
   st.ring = (st.ring || []).concat({ t: now, d: chunk }).slice(-12);
-  if (!echoGate(st, rms, chunk)) { send(SILENCE_40MS, 0.04); st.paused = true; return; } // partner speaking: its echo stays out
-  const keep = (d) => { st.turnAudio = (st.turnAudio || []).concat(d).slice(-750); send(d, 0.04); };
+  // Nothing to send (you are quiet, or the partner is speaking). Normally silence is streamed so Gemini's
+  // timing stays exact. "Save data": after Gemini has had enough silence to know you finished, the stream is
+  // paused instead (audioStreamEnd), so a weak connection only carries your actual words.
+  const quiet = () => {
+    st.paused = true;
+    if (!S.saveData) { send(SILENCE_40MS, 0.04); return; }
+    const practice = st.kind === 'repeat' || practiceLoop();
+    const hold = 0.8 + (practice ? 1.6 : 0.5) + 0.3;
+    if (st.lastVoice && now - st.lastVoice < hold && !(st.playT && now < st.playT)) { send(SILENCE_40MS, 0.04); st.streamEnded = false; return; }
+    if (!st.streamEnded) { st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); st.streamEnded = true; }
+  };
+  if (!echoGate(st, rms, chunk)) { quiet(); return; } // partner speaking: its echo stays out
+  const keep = (d) => { st.turnAudio = (st.turnAudio || []).concat(d).slice(-750); st.streamEnded = false; send(d, 0.04); };
   if (st.flushRing) { st.flushRing = false; st.ring.forEach((r) => keep(r.d)); st.ring = []; st.paused = false; return; }
   // Your voice measures about 0.05 and up at the mic; quieter sound is room noise, which Gemini turned into
   // odd words ("A", Hindi). So only sound from VOICE_LEVEL up opens the mic; it stays open 0.8 s after your
   // last word, and the 0.4 s before it opened is sent too, so the start of your words is never cut.
   if (rms >= VOICE_LEVEL) st.lastVoice = now;
   const speaking = st.lastVoice && now - st.lastVoice < 0.8;
-  if (!speaking) { send(SILENCE_40MS, 0.04); st.paused = true; return; }
+  if (!speaking) { quiet(); return; }
   if (st.paused) {
     const since = Math.max((st.playT || 0) + 0.3, now - 0.4);
     st.ring.filter((r) => r.t > since).forEach((r) => keep(r.d));
@@ -469,9 +480,10 @@ function playPcm24(st, b64) {
   const src = st.ctx.createBufferSource(); src.buffer = ab; src.connect(st.out);
   // A small buffer before the partner's voice starts. If the voice runs dry in the middle of a reply
   // (slow internet), the buffer grows, so later replies play smoothly instead of in bits.
-  const now = st.ctx.currentTime; st.jitter = st.jitter || 0.15;
+  // a bigger starting buffer with "Save data" (weak connections), so the voice plays in one piece
+  const now = st.ctx.currentTime; st.jitter = st.jitter || (S.saveData ? 0.3 : 0.15);
   if (st.playT < now) {
-    if (st.inReply) { st.jitter = Math.min(0.5, st.jitter + 0.1); st.underran = true; }
+    if (st.inReply) { st.jitter = Math.min(S.saveData ? 1.0 : 0.5, st.jitter + (S.saveData ? 0.15 : 0.1)); st.underran = true; }
     st.playT = now + st.jitter;
   }
   st.inReply = true;

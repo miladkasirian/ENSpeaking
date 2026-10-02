@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.22.3 (2026-10-02)';
+const VERSION = '2.22.4 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -75,9 +75,9 @@ if (!S.defaults2) {
   store.set('ens.settings', S);
 }
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
-if (!S.defaults6) { S.saveData = true; S.aiNoise = true; S.defaults6 = true; store.set('ens.settings', S); } // data saver and AI noise removal on, applied once
+if (!S.defaults6) { S.defaults6 = true; store.set('ens.settings', S); }
 if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
-S.saveData = false; S.aiNoise = false; S.micDuringReply = 'hold'; // these layers delayed and dropped soft speech; removed
+S.aiNoise = false; S.micDuringReply = 'hold'; // these layers delayed and dropped soft speech; removed
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
@@ -1596,7 +1596,7 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels', 'saveData'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
