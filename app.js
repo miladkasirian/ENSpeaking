@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.5.1 (2026-10-02)';
+const VERSION = '2.6.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -74,8 +74,8 @@ let availableModels = store.get('ens.models', null); // list of ids from /v1/mod
 const totals = Object.assign({ stt: 0, chat: 0, tts: 0, rt: 0, gem: 0 }, store.get('ens.totals', {}));
 const session = { stt: 0, chat: 0, tts: 0, rt: 0, gem: 0, sttSec: 0, chatTok: 0, ttsSec: 0, rtSec: 0, gemSec: 0, gemTok: 0 };
 const isCallEngine = () => S.engine === 'realtime' || S.engine === 'glive';
-/* Which modes run as a live call: Gemini Live covers both tabs; OpenAI Realtime only Conversation. */
-const usesCall = () => S.engine === 'glive' || (S.engine === 'realtime' && mode === 'talk');
+/* With a live engine, both tabs run as a live call. */
+const usesCall = () => S.engine === 'glive' || S.engine === 'realtime';
 function missingKey(models) {
   for (const m of models) { if (isGem(m) ? !gKey : !apiKey) return isGem(m) ? 'Gemini' : 'OpenAI'; }
   return null;
@@ -680,24 +680,23 @@ function rtInstructions() {
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged() {
   if (rt && rt.dc && rt.dc.readyState === 'open') {
-    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rtInstructions(), audio: { output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
+    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rt.kind === 'repeat' ? repeatInstructions() : rtInstructions(), audio: { output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
     setStatus('New settings applied to this call.');
   } else if (gl) {
     setStatus(geminiApplySettings() ? 'Applying the new settings to this call...' : 'The new settings start with your next call.');
   }
 }
-async function startCall() {
+async function startCall(kind = 'talk') {
   if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
   if (!window.RTCPeerConnection) { setStatus('This browser does not support realtime calls.', true); return; }
   setPhase('connecting'); setStatus('Connecting...');
   setAudioSession('play-and-record');
-  const log = $('log'); clearEmpty(log);
-  const state = { pc: null, dc: null, stream: null, audio: null, stopMeters: [], items: {}, t0: 0, timer: null };
+  const state = { kind, pc: null, dc: null, stream: null, audio: null, stopMeters: [], items: {}, t0: 0, timer: null };
   rt = state;
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const sessionCfg = {
-      type: 'realtime', model: S.rtModel, instructions: rtInstructions(),
+      type: 'realtime', model: S.rtModel, instructions: kind === 'repeat' ? repeatInstructions() : rtInstructions(),
       audio: {
         input: { transcription: { model: 'gpt-4o-mini-transcribe', language: 'en' }, turn_detection: { type: 'semantic_vad' } },
         output: { voice: S.rtVoice, speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) },
@@ -725,11 +724,13 @@ async function startCall() {
     dc.onmessage = (e) => { try { onRtEvent(JSON.parse(e.data)); } catch { /* ignore */ } };
     dc.onopen = () => {
       state.t0 = performance.now();
-      setPhase('call'); setStatus('You are live. Just talk. Tap the circle to hang up.');
+      setPhase('call');
+      if (kind === 'repeat') { setStatus('Live drill. Listen, then repeat. Tap the circle to stop.'); rtSay("Let's start. Give me the first sentence."); }
+      else setStatus('You are live. Just talk. Tap the circle to hang up.');
       state.timer = setInterval(() => {
         if (rt !== state) return;
         const sec = (performance.now() - state.t0) / 1000;
-        $('status').textContent = `Live for ${fmtDur(sec)}. Tap the circle to hang up.`;
+        if (!/^Hearing/.test($('status').textContent)) $('status').textContent = `Live for ${fmtDur(sec)}. Tap the circle to hang up.`;
       }, 1000);
     };
     pc.onconnectionstatechange = () => { if (['failed', 'closed', 'disconnected'].includes(pc.connectionState) && rt === state) endCall('The call dropped.'); };
@@ -756,13 +757,54 @@ function endCall(msg, isErr = false) {
   setPhase('idle'); renderSpend();
   setStatus(msg || `Call ended. This session so far: ${money(sessionTotal())}.`, isErr);
 }
+function rtLog() { return rt && rt.kind === 'repeat' ? $('repeatLog') : $('log'); }
 function rtBubble(id, who) {
   const st = rt; if (!st) return null;
-  if (!st.items[id]) st.items[id] = bubble($('log'), who, '', { pending: who === 'me' });
+  if (!st.items[id]) { clearEmpty(rtLog()); st.items[id] = bubble(rtLog(), who, '', { pending: who === 'me' }); }
   return st.items[id];
+}
+/* Send a request to the realtime model as if typed (used by the drill buttons). */
+function rtSay(text) {
+  const st = rt; if (!st || !st.dc || st.dc.readyState !== 'open') return false;
+  st.dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }));
+  st.dc.send(JSON.stringify({ type: 'response.create' }));
+  return true;
+}
+function onRtRepeatEvent(ev) {
+  const t = ev.type || '';
+  if (t === 'input_audio_buffer.speech_started') { setStatus('Hearing you...'); return true; }
+  if (t === 'conversation.item.input_audio_transcription.completed') {
+    const text = String(ev.transcript || '').trim();
+    if (text && target) renderAttempt(text);
+    setStatus('Live drill. Listen, then repeat. Tap the circle to stop.');
+    return false; // let the cost code below run
+  }
+  if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
+    const b = rtBubble(ev.item_id, 'ai'); const d = parseDrill(ev.transcript || '');
+    if (d) {
+      if (!target || target.sentence !== d.sentence) attempts = 0;
+      target = { sentence: d.sentence, focus: '' };
+      $('target').textContent = d.sentence; $('focus').textContent = '';
+      $('hearAgain').disabled = false; $('hearSlow').disabled = false;
+      if (b) { if (d.before) b.querySelector('.txt').textContent = d.before; else b.remove(); }
+      setStatus('Now repeat the sentence.');
+    }
+    return true;
+  }
+  return false;
 }
 function onRtEvent(ev) {
   const t = ev.type || '';
+  if (rt && rt.kind === 'repeat') {
+    if (onRtRepeatEvent(ev)) return;
+    if (t === 'input_audio_buffer.committed') return;
+  }
+  if (t === 'conversation.item.input_audio_transcription.completed' && rt && rt.kind === 'repeat') {
+    const u = ev.usage;
+    if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
+    else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
+    return;
+  }
   if (t === 'input_audio_buffer.committed' || t === 'input_audio_buffer.speech_started') {
     if (ev.item_id) { const b = rtBubble(ev.item_id, 'me'); if (b && !b.querySelector('.txt').textContent) b.querySelector('.txt').textContent = '...'; }
     if (t === 'input_audio_buffer.speech_started') setStatus('Listening...');
@@ -775,7 +817,7 @@ function onRtEvent(ev) {
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
     if (text && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
   } else if (t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta') {
-    const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown($('log')); }
+    const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown(rtLog()); }
   } else if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
     const b = rtBubble(ev.item_id, 'ai'); if (b && ev.transcript) b.querySelector('.txt').textContent = ev.transcript;
     if (ev.transcript) { history.push({ role: 'assistant', content: ev.transcript }); history = history.slice(-16); }
@@ -977,7 +1019,7 @@ function syncEngineUI() {
 }
 function idleStatus() {
   const haveKey = S.provider === 'gemini' ? gKey : apiKey;
-  setStatus(haveKey ? (usesCall() ? (mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle to start. Gemini says a sentence, you repeat it.') : 'Tap the circle and speak, or type below.')
+  setStatus(haveKey ? (usesCall() ? (mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle to start. The coach says a sentence, you repeat it.') : 'Tap the circle and speak, or type below.')
     : `Start by adding your ${S.provider === 'gemini' ? 'Gemini' : 'OpenAI'} key in Settings.`);
 }
 function syncHandsFree() { $('handsFreeBtn').setAttribute('aria-pressed', S.handsFree ? 'true' : 'false'); $('handsFree').checked = !!S.handsFree; }
@@ -1105,7 +1147,7 @@ function onOrb() {
   unlockAudio(); handsFreeCancelled = false;
   if (usesCall()) {
     if (phase === 'call' || phase === 'connecting') endAnyCall();
-    else { stopSpeaking(); if (S.engine === 'glive') startGeminiCall(mode); else startCall(); }
+    else { stopSpeaking(); if (S.engine === 'glive') startGeminiCall(mode); else startCall(mode); }
     return;
   }
   if (phase === 'rec') { stopRec(); return; }
@@ -1123,8 +1165,7 @@ function switchMode(m) {
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat';
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
-  if (m === 'repeat' && S.engine === 'realtime') setStatus('Repeat practice uses the turn-by-turn engine with OpenAI. Tap Next sentence to begin.');
-  if (m === 'repeat' && S.engine === 'glive') setStatus('Tap the circle to start. Gemini says a sentence, you repeat it, it tells you how it went.');
+  if (m === 'repeat' && usesCall()) setStatus('Tap the circle to start. The coach says a sentence, you repeat it, it tells you how it went.');
 }
 async function onTyped(ev) {
   ev.preventDefault();
@@ -1138,7 +1179,30 @@ async function onTyped(ev) {
   try { await handleTalk(text, true); } catch (e) { setPhase('idle'); setStatus(e.message, true); }
 }
 
+/* iPhone Safari ignores user-scalable=no, so pinch zoom is blocked through its own gesture events. */
+function lockZoom() {
+  const stop = (e) => e.preventDefault();
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, stop, { passive: false }));
+  document.addEventListener('touchmove', (e) => { if ((e.scale !== undefined && e.scale !== 1) || e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  document.addEventListener('dblclick', stop, { passive: false });
+}
+/* Keep the layout inside the visible area when the keyboard opens (iOS does not shrink 100dvh for it). */
+function fitToViewport() {
+  const vv = window.visualViewport; if (!vv) return;
+  const apply = () => {
+    document.documentElement.style.setProperty('--app-h', Math.round(vv.height) + 'px');
+    if (window.scrollY) window.scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', apply); vv.addEventListener('scroll', apply); apply();
+}
+function registerWorker() {
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* the app works without it */ });
+  }
+}
+
 function init() {
+  lockZoom(); fitToViewport(); registerWorker();
   fillModelSelects();
   bindSettings();
   restoreChat(); emptyState(); renderSpend();
@@ -1175,19 +1239,21 @@ function init() {
   });
   $('clearRepeat').addEventListener('click', () => { $('repeatLog').innerHTML = ''; emptyState(); });
   // In a Gemini Live repeat drill these buttons ask the coach instead of the turn-by-turn engine.
-  const liveRepeat = () => gl && gl.kind === 'repeat';
+  const liveRepeat = () => (gl && gl.kind === 'repeat') || (rt && rt.kind === 'repeat');
+  const geminiSayOrRt = (text) => (gl ? geminiSay(text) : rtSay(text));
   $('nextSentence').addEventListener('click', () => {
     handsFreeCancelled = false;
-    if (liveRepeat()) { geminiSay('Next sentence, please.'); return; }
+    if (liveRepeat()) { geminiSayOrRt('Next sentence, please.'); return; }
     if (S.engine === 'glive') { unlockAudio(); startGeminiCall('repeat'); return; }
+    if (S.engine === 'realtime') { unlockAudio(); startCall('repeat'); return; }
     nextSentence();
   });
   $('hearAgain').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSay('Please say the same sentence again.'); return; }
+    if (liveRepeat()) { geminiSayOrRt('Please say the same sentence again.'); return; }
     if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence); }
   });
   $('hearSlow').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSay('Please say the same sentence again, slowly and clearly.'); return; }
+    if (liveRepeat()) { geminiSayOrRt('Please say the same sentence again, slowly and clearly.'); return; }
     if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence, Math.max(0.5, Number(S.rate) * 0.7)); }
   });
   $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });

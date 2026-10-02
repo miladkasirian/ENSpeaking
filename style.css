@@ -47,6 +47,13 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
+/* App feel on iPhone: no double-tap zoom, no font inflation, no rubber-band bounce of the whole page */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { overscroll-behavior: none; }
+button, .seg, .orb, .side-btn, .engine-chip, .spend, .brand, .status, .choice-card, summary {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.msg .txt, .fix, .target { -webkit-user-select: text; user-select: text; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -63,6 +70,7 @@ button { cursor: pointer; }
 .shell {
   height: 100vh;
   height: 100dvh;
+  height: var(--app-h, 100dvh); /* follows the visible area when the iPhone keyboard is open */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
@@ -342,6 +350,6 @@ dialog::backdrop { background: rgba(10, 16, 34, .5); backdrop-filter: blur(3px);
 #promptText {
   width: 100%; min-height: 220px; resize: vertical; padding: 10px 12px; border-radius: var(--r-sm);
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
-  font: 14.5px/1.5 var(--body);
+  font: 16px/1.5 var(--body); /* 16px or more: iPhone zooms into smaller inputs */
 }
 .row-btns { display: flex; flex-wrap: wrap; gap: 8px; }
