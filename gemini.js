@@ -148,7 +148,7 @@ function b64ToBytes(b64) { const s = atob(b64); const u = new Uint8Array(s.lengt
 async function geminiTranscribe(blob) {
   const wav = await toWav16k(blob);
   const text = await geminiGenerate(S.sttModel,
-    prompt('transcription'),
+    transcriptionPrompt(),
     [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(wav) } },
       { text: 'Transcribe this audio word for word. Output only the transcript. If there is no speech, output nothing.' }] }],
     400, false, 'stt');

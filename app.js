@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.12.0 (2026-10-02)';
+const VERSION = '2.13.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -247,9 +247,9 @@ async function transcribe(blob, ext, seconds) {
   const fd = new FormData();
   fd.append('file', blob, 'speech.' + ext);
   fd.append('model', S.sttModel);
-  fd.append('language', 'en');
+  if (!anyLanguage()) fd.append('language', 'en'); // Open talk: let it detect Persian and other languages
   fd.append('response_format', 'json');
-  fd.append('prompt', prompt('transcription'));
+  fd.append('prompt', transcriptionPrompt());
   const res = await fetch(API + '/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd });
   if (!res.ok) throw await apiError(res);
   const j = await res.json();
@@ -586,14 +586,23 @@ function promptVars(extra = {}) {
   }
   return v;
 }
-/* Open talk: the Conversation tab without corrections. */
+/* Open talk: the Conversation tab without corrections, in any language. */
 const isOpenTalk = () => S.talkMode === 'open';
+const anyLanguage = () => isOpenTalk() && mode === 'talk';
+const LANG_ENGLISH = 'Speak only English.';
+const LANG_FREE = 'The learner may speak Persian (Farsi), English, a mix of both, or any other language. Always understand them. Answer in the language they use or ask for: if they speak Persian, you may answer in Persian. When they ask how to say something in English, give natural American English and explain it in their language if that helps.';
+function transcriptionPrompt() {
+  return anyLanguage()
+    ? 'Transcribe exactly what the speaker says, word for word. The speaker may use Persian (Farsi), English, or both in one sentence. Write Persian in Persian script and English in English. Do not translate.'
+    : prompt('transcription');
+}
 function openTalkVars() {
-  if (!isOpenTalk()) return {};
+  if (!isOpenTalk()) return { languageRule: LANG_ENGLISH };
   const note = fillPrompt(rawPrompt('openTalk'), {});
   return {
     corrections: note + ' Always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".',
     spokenCorrections: note,
+    languageRule: anyLanguage() ? LANG_FREE : LANG_ENGLISH,
   };
 }
 function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
@@ -644,7 +653,7 @@ function renderFix(log, out) {
 }
 function bubble(log, who, text, opts = {}) {
   const b = el('div', 'msg ' + (who === 'me' ? 'me' : 'ai') + (opts.pending ? ' pending' : ''));
-  b.innerHTML = `<div class="who">${who === 'me' ? (opts.typed ? 'You wrote' : 'I heard') : 'Partner'}</div><div class="txt">${esc(text)}</div>`;
+  b.innerHTML = `<div class="who">${who === 'me' ? (opts.typed ? 'You wrote' : 'I heard') : 'Partner'}</div><div class="txt" dir="auto">${esc(text)}</div>`;
   if (opts.play) {
     const p = el('button', 'play', 'Play again'); p.type = 'button'; p.dataset.say = text;
     b.appendChild(p);
@@ -819,11 +828,14 @@ function rtInstructions() {
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged() {
   if (rt && rt.dc && rt.dc.readyState === 'open') {
-    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rt.kind === 'repeat' ? repeatInstructions() : rtInstructions(), audio: { output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
+    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rt.kind === 'repeat' ? repeatInstructions() : rtInstructions(), audio: { input: { transcription: rtTranscription() }, output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
     setStatus('New settings applied to this call.');
   } else if (gl) {
     setStatus(geminiApplySettings() ? 'Applying the new settings to this call...' : 'The new settings start with your next call.');
   }
+}
+function rtTranscription() {
+  return anyLanguage() ? { model: 'gpt-4o-mini-transcribe', prompt: transcriptionPrompt() } : { model: 'gpt-4o-mini-transcribe', language: 'en' };
 }
 async function startCall(kind = 'talk') {
   if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
@@ -837,7 +849,7 @@ async function startCall(kind = 'talk') {
     const sessionCfg = {
       type: 'realtime', model: S.rtModel, instructions: kind === 'repeat' ? repeatInstructions() : rtInstructions(),
       audio: {
-        input: { transcription: { model: 'gpt-4o-mini-transcribe', language: 'en' }, turn_detection: { type: 'semantic_vad' } },
+        input: { transcription: rtTranscription(), turn_detection: { type: 'semantic_vad' } },
         output: { voice: S.rtVoice, speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) },
       },
     };
