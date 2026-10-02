@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.1.0 (2026-10-02)';
+const VERSION = '2.2.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,12 +38,16 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'B1', strict: 'all', explainLang: 'English', replyLen: 'short',
+  level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'medium',
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true,
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
+  // per-provider choices, so switching provider brings back what was picked there last time
+  provider: 'gemini',
+  oaChat: 'gpt-4o-mini', oaStt: 'gpt-4o-mini-transcribe', oaEngine: 'turn',
+  gChat: 'gemini-3.5-flash-lite', gStt: 'gemini-3.5-flash-lite', gEngine: 'glive',
   prices: {},            // user overrides, keyed by model id
 };
 
@@ -55,6 +59,14 @@ const store = {
 };
 const S = Object.assign({}, DEFAULTS, store.get('ens.settings', {}));
 S.prices = Object.assign({}, S.prices);
+function applyProvider() {
+  const g = S.provider === 'gemini';
+  S.chatModel = g ? S.gChat : S.oaChat;
+  S.sttModel = g ? S.gStt : S.oaStt;
+  S.engine = g ? S.gEngine : S.oaEngine;
+  if (g && S.voiceEngine === 'openai') S.voiceEngine = 'device';
+}
+applyProvider();
 let apiKey = store.get('ens.key', '');
 let gKey = store.get('ens.gkey', '');
 let availableGemini = store.get('ens.gmodels', null);
@@ -261,7 +273,13 @@ audioEl.preload = 'auto';
 audioEl.setAttribute('playsinline', '');
 let audioUnlocked = false;
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+/* iPhone: without this, page audio is "ambient": the volume buttons change the ringer
+   instead, and the silent switch mutes it. 'playback' makes it media audio (iOS 17+). */
+function setAudioSession(type) {
+  try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { /* older browsers */ }
+}
 function unlockAudio() {
+  if (!rec && !rt && !gl) setAudioSession('playback');
   if (audioUnlocked) return;
   audioUnlocked = true;
   try { audioEl.src = SILENT_WAV; audioEl.play().catch(() => {}); } catch { /* ignore */ }
@@ -370,12 +388,14 @@ function meter(stream, onLevel) {
 
 async function startRec() {
   if (!needKeys([S.sttModel, S.chatModel])) return;
+  setAudioSession('play-and-record');
   const fmt = pickMime();
   if (!fmt || !navigator.mediaDevices?.getUserMedia) { setStatus('This browser cannot record audio.', true); return; }
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   } catch (e) {
+    setAudioSession('playback');
     setPhase('idle');
     setStatus(e.name === 'NotAllowedError' ? 'Microphone access is off. Allow it for this site in Safari, then tap again.' : 'Microphone error: ' + e.message, true);
     return;
@@ -409,6 +429,7 @@ function stopRec() {
   r.stopped = true; r.t1 = performance.now();
   try { r.mr.stop(); } catch { /* ignore */ }
   r.stream.getTracks().forEach((t) => t.stop()); // an open mic makes iPhone speech quiet
+  setAudioSession('playback');
   if (r.stopMeter) r.stopMeter();
   levels.mic = 0;
   setPhase('think'); setStatus('Thinking...');
@@ -606,6 +627,7 @@ async function startCall() {
   if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
   if (!window.RTCPeerConnection) { setStatus('This browser does not support realtime calls.', true); return; }
   setPhase('connecting'); setStatus('Connecting...');
+  setAudioSession('play-and-record');
   const log = $('log'); clearEmpty(log);
   const state = { pc: null, dc: null, stream: null, audio: null, stopMeters: [], items: {}, t0: 0, timer: null };
   rt = state;
@@ -666,6 +688,7 @@ function endCall(msg, isErr = false) {
   try { st.pc && st.pc.close(); } catch { /* ignore */ }
   if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
   if (st.audio) { st.audio.srcObject = null; st.audio.remove(); }
+  setAudioSession('playback');
   levels.mic = levels.ai = 0;
   setPhase('idle'); renderSpend();
   setStatus(msg || `Call ended. This session so far: ${money(sessionTotal())}.`, isErr);
@@ -835,8 +858,13 @@ function rtLabel(m) { const p = price('rt', m); return `${m}  (audio $${p.ain} /
 function fillModelSelects() {
   const L = modelLists();
   const G = geminiLists();
-  fillGrouped('chatModel', [['OpenAI', L.chat, chatLabel], ['Gemini', G.text, gemLabel]], S.chatModel);
-  fillGrouped('sttModel', [['OpenAI', L.stt, (m) => `${m}  ($${price('stt', m).min}/min)`], ['Gemini', G.text, gemLabel]], S.sttModel);
+  if (S.provider === 'gemini') {
+    fillSelect('chatModel', G.text, S.chatModel, gemLabel);
+    fillSelect('sttModel', G.text, S.sttModel, gemLabel);
+  } else {
+    fillSelect('chatModel', L.chat, S.chatModel, chatLabel);
+    fillSelect('sttModel', L.stt, S.sttModel, (m) => `${m}  ($${price('stt', m).min}/min)`);
+  }
   fillSelect('gLiveModel', G.live, S.gLiveModel, (m) => `${m}  (${S.gemFree ? 'free tier' : '$0.005 / $0.018 per min'})`);
   fillSelect('gVoice', GEMINI_VOICES, S.gVoice);
   fillSelect('rtModel', L.rt, S.rtModel, rtLabel);
@@ -847,9 +875,11 @@ function renderPrices() {
   const chatRows = isGem(S.chatModel) ? [[S.chatModel, 'in', 'Gemini chat input, per 1M (paid tier)', 'gem'], [S.chatModel, 'out', 'Gemini chat output, per 1M (paid tier)', 'gem']]
     : [[S.chatModel, 'in', 'Chat input, per 1M tokens', 'chat'], [S.chatModel, 'out', 'Chat output, per 1M tokens', 'chat']];
   const sttRows = isGem(S.sttModel) ? [[S.sttModel, 'ain', 'Gemini audio input, per 1M (paid tier)', 'gem']] : [[S.sttModel, 'min', 'Speech to text, per minute', 'stt']];
-  const rows = [
+  const rows = S.provider === 'gemini' ? [
+    ...chatRows, ...sttRows,
+    [S.gLiveModel, 'inMin', 'Live call audio in, per minute (paid tier)', 'glive'], [S.gLiveModel, 'outMin', 'Live call audio out, per minute (paid tier)', 'glive'],
+  ] : [
     ...chatRows, ...sttRows, [TTS_MODEL, 'min', 'OpenAI voice, per minute', 'tts'],
-    [S.gLiveModel, 'inMin', 'Gemini Live audio in, per minute (paid tier)', 'glive'], [S.gLiveModel, 'outMin', 'Gemini Live audio out, per minute (paid tier)', 'glive'],
     [S.rtModel, 'ain', 'Realtime audio in, per 1M', 'rt'], [S.rtModel, 'acached', 'Realtime cached audio in, per 1M', 'rt'],
     [S.rtModel, 'aout', 'Realtime audio out, per 1M', 'rt'], [S.rtModel, 'tin', 'Realtime text in, per 1M', 'rt'],
     [S.rtModel, 'tout', 'Realtime text out, per 1M', 'rt'],
@@ -866,10 +896,23 @@ function renderPrices() {
     f.appendChild(inp); g.appendChild(f);
   });
 }
-function syncVoiceUI() { const oa = S.voiceEngine === 'openai'; $('openaiVoiceWrap').hidden = !oa; $('deviceVoiceWrap').hidden = oa; }
+function syncVoiceUI() { const oa = S.voiceEngine === 'openai'; $('openaiVoiceWrap').hidden = !oa; $('deviceVoiceWrap').hidden = oa; $('voiceEngine').value = S.voiceEngine; }
+function syncProviderUI() {
+  document.querySelectorAll('[data-prov]').forEach((n) => {
+    const hide = n.dataset.prov !== S.provider;
+    n.hidden = hide;
+    if (n.tagName === 'OPTION') n.disabled = hide;
+  });
+  fillModelSelects();
+}
 function syncEngineUI() {
   document.querySelectorAll('input[name="engine"]').forEach((r) => { r.checked = r.value === S.engine; });
   renderEngineChip(); if (phase === 'idle') setPhase('idle');
+}
+function idleStatus() {
+  const haveKey = S.provider === 'gemini' ? gKey : apiKey;
+  setStatus(haveKey ? (isCallEngine() && mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle and speak, or type below.')
+    : `Start by adding your ${S.provider === 'gemini' ? 'Gemini' : 'OpenAI'} key in Settings.`);
 }
 function syncHandsFree() { $('handsFreeBtn').setAttribute('aria-pressed', S.handsFree ? 'true' : 'false'); $('handsFree').checked = !!S.handsFree; }
 
@@ -901,8 +944,17 @@ async function checkGeminiKey() {
 
 function bindSettings() {
   $('gKey').value = gKey;
-  $('gKey').addEventListener('change', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); if (gKey) checkGeminiKey(); });
+  $('gKey').addEventListener('change', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); if (gKey) checkGeminiKey(); idleStatus(); });
   $('checkGKey').addEventListener('click', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); checkGeminiKey(); });
+  document.querySelectorAll('input[name="provider"]').forEach((r) => {
+    r.checked = r.value === S.provider;
+    r.addEventListener('change', () => {
+      if (!r.checked) return;
+      endAnyCall(); stopSpeaking();
+      S.provider = r.value; applyProvider(); saveSettings();
+      syncProviderUI(); syncEngineUI(); syncVoiceUI(); renderPrices(); renderTotals(); idleStatus();
+    });
+  });
   $('gemFree').checked = !!S.gemFree;
   $('gemFree').addEventListener('change', () => { S.gemFree = $('gemFree').checked; saveSettings(); fillModelSelects(); renderPrices(); renderTotals(); renderSpend(); });
   $('forgetGKey').addEventListener('click', () => { gKey = ''; store.del('ens.gkey'); $('gKey').value = ''; $('gKeyHint').className = 'hint'; $('gKeyHint').textContent = 'Gemini key removed from this device.'; });
@@ -912,14 +964,20 @@ function bindSettings() {
   ['level', 'strict', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
-    n.addEventListener('change', () => { S[id] = n.value; saveSettings(); syncVoiceUI(); renderPrices(); });
+    n.addEventListener('change', () => {
+      S[id] = n.value;
+      const g = S.provider === 'gemini';
+      if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
+      if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
+      saveSettings(); syncVoiceUI(); renderPrices();
+    });
   });
   ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); });
   });
   document.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', () => {
-    if (r.checked) { endAnyCall(); S.engine = r.value; saveSettings(); syncEngineUI(); }
+    if (r.checked) { endAnyCall(); S.engine = r.value; S[S.provider === 'gemini' ? 'gEngine' : 'oaEngine'] = r.value; saveSettings(); syncEngineUI(); idleStatus(); }
   }));
   $('deviceVoice').addEventListener('change', () => { S.deviceVoice = $('deviceVoice').value; saveSettings(); });
   $('rate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
@@ -929,7 +987,7 @@ function bindSettings() {
   $('resetTotals').addEventListener('click', () => { Object.keys(totals).forEach((k) => { totals[k] = 0; }); store.set('ens.totals', totals); renderTotals(); renderSpend(); });
   $('forgetKey').addEventListener('click', () => { apiKey = ''; store.del('ens.key'); $('apiKey').value = ''; $('keyHint').className = 'hint'; $('keyHint').textContent = 'Key removed from this device.'; });
   $('ver').textContent = VERSION;
-  syncVoiceUI(); syncHandsFree(); syncEngineUI();
+  syncProviderUI(); syncVoiceUI(); syncHandsFree(); syncEngineUI();
 }
 
 /* ---------- wiring ---------- */
@@ -1012,7 +1070,7 @@ function init() {
     if (document.hidden) { handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }
   });
   setPhase('idle');
-  setStatus(apiKey || gKey ? 'Tap the circle and speak, or type below.' : 'Start by adding an OpenAI or Gemini key in Settings.');
+  idleStatus();
   if (apiKey && !availableModels) fetchModels().then(fillModelSelects).catch(() => {});
   if (gKey && !availableGemini) fetchGeminiModels().then(fillModelSelects).catch(() => {});
 }

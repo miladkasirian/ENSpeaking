@@ -163,6 +163,7 @@ const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&
 async function startGeminiCall() {
   if (!gKey) { setStatus('Add your Gemini key in Settings first.', true); openSettings(); return; }
   setPhase('connecting'); setStatus('Connecting to Gemini...');
+  setAudioSession('play-and-record');
   clearEmpty($('log'));
   const st = { ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
     t0: 0, timer: null, handle: null, basic: false, setupDone: false, closing: false, reconnects: 0, me: null, meText: '', ai: null, aiText: '', stops: [] };
@@ -333,6 +334,7 @@ function endGemini(msg, isErr = false) {
   st.stops.forEach((f) => f());
   if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
   if (st.me) finishMyTurn(st);
+  setAudioSession('playback');
   levels.mic = levels.ai = 0;
   setPhase('idle'); renderSpend();
   setStatus(msg || `Call ended. This session so far: ${money(sessionTotal())}.`, isErr);

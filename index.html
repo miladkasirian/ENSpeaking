@@ -114,7 +114,17 @@
       <button class="pill-btn strong" value="close">Done</button>
     </div>
 
-    <section class="group">
+    <section class="group" id="providerGroup">
+      <h3>AI provider</h3>
+      <div class="choice">
+        <label class="choice-card"><input type="radio" name="provider" value="gemini">
+          <span><b>Google Gemini</b><small>Free with a free-tier key, within Google's daily limits. Live calls by default.</small></span></label>
+        <label class="choice-card"><input type="radio" name="provider" value="openai">
+          <span><b>OpenAI</b><small>Paid per use. Turn by turn costs cents per hour; Realtime calls cost more.</small></span></label>
+      </div>
+    </section>
+
+    <section class="group" data-prov="openai">
       <h3>OpenAI key</h3>
       <div class="key-row">
         <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." aria-label="OpenAI API key">
@@ -123,10 +133,10 @@
       <p class="hint" id="keyHint">Stored only in this browser. It is never part of the code on GitHub.</p>
     </section>
 
-    <section class="group">
+    <section class="group" data-prov="gemini">
       <h3>Gemini key</h3>
       <div class="key-row">
-        <input id="gKey" type="password" autocomplete="off" placeholder="AIza..." aria-label="Gemini API key">
+        <input id="gKey" type="password" autocomplete="off" placeholder="AQ... or AIza..." aria-label="Gemini API key">
         <button type="button" class="pill-btn" id="checkGKey">Check</button>
       </div>
       <p class="hint" id="gKeyHint">From aistudio.google.com. Stored only in this browser.</p>
@@ -137,22 +147,22 @@
     <section class="group" id="engineGroup">
       <h3>Engine</h3>
       <div class="choice">
+        <label class="choice-card" data-prov="gemini"><input type="radio" name="engine" value="glive">
+          <span><b>Live call</b><small>Talk freely like a phone call. You can interrupt it.</small></span></label>
+        <label class="choice-card" data-prov="openai"><input type="radio" name="engine" value="realtime">
+          <span><b>Live call (Realtime)</b><small>Talk freely like a phone call. You can interrupt it. Costs several times more than turn by turn.</small></span></label>
         <label class="choice-card"><input type="radio" name="engine" value="turn">
-          <span><b>Turn by turn</b><small>Speech to text, then a chat model, then a voice. Works with OpenAI or Gemini models. About 1 to 3 seconds per reply.</small></span></label>
-        <label class="choice-card"><input type="radio" name="engine" value="realtime">
-          <span><b>OpenAI Realtime</b><small>A live voice call. You can interrupt it. Costs several times more.</small></span></label>
-        <label class="choice-card"><input type="radio" name="engine" value="glive">
-          <span><b>Gemini Live</b><small>A live voice call with Google's model. Free on a free-tier key, within Google's limits.</small></span></label>
+          <span><b>Turn by turn</b><small>Speak, then get a written correction and a reply. About 1 to 3 seconds per reply.</small></span></label>
       </div>
     </section>
 
     <section class="group" id="turnGroup">
-      <h3>Turn by turn</h3>
+      <h3>Turn by turn and Repeat after me</h3>
       <div class="grid2">
         <label class="field"><span>Chat model</span><select id="chatModel"></select></label>
         <label class="field"><span>Speech to text</span><select id="sttModel"></select></label>
         <label class="field"><span>Voice</span>
-          <select id="voiceEngine"><option value="device">iPhone voice (free)</option><option value="openai">OpenAI voice (paid)</option></select></label>
+          <select id="voiceEngine"><option value="device">iPhone voice (free)</option><option value="openai" data-prov="openai">OpenAI voice (paid)</option></select></label>
         <label class="field" id="deviceVoiceWrap"><span>iPhone voice</span><select id="deviceVoice"></select></label>
         <label class="field" id="openaiVoiceWrap" hidden><span>OpenAI voice</span><select id="openaiVoice"></select></label>
         <label class="field"><span>Speed <b id="rateVal">1.00</b></span><input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="1"></label>
@@ -162,22 +172,20 @@
       <button type="button" class="pill-btn" id="testVoice">Test voice</button>
     </section>
 
-    <section class="group" id="rtGroup">
-      <h3>Realtime</h3>
+    <section class="group" id="rtGroup" data-prov="openai">
+      <h3>Live call (Realtime)</h3>
       <div class="grid2">
         <label class="field"><span>Realtime model</span><select id="rtModel"></select></label>
         <label class="field"><span>Voice</span><select id="rtVoice"></select></label>
       </div>
-      <label class="check"><input id="rtWritten" type="checkbox"> Also show written corrections (uses the chat model, very cheap)</label>
     </section>
 
-    <section class="group" id="gliveGroup">
-      <h3>Gemini Live</h3>
+    <section class="group" id="gliveGroup" data-prov="gemini">
+      <h3>Live call</h3>
       <div class="grid2">
         <label class="field"><span>Live model</span><select id="gLiveModel"></select></label>
         <label class="field"><span>Voice</span><select id="gVoice"></select></label>
       </div>
-      <p class="hint">Written corrections during the call use the chat model chosen under Turn by turn.</p>
     </section>
 
     <section class="group">
@@ -194,6 +202,7 @@
       </div>
       <label class="check"><input id="sayCorrections" type="checkbox"> Say the correction out loud before replying</label>
       <label class="check"><input id="handsFree" type="checkbox"> Hands-free: listen again after each answer</label>
+      <label class="check"><input id="rtWritten" type="checkbox"> In live calls, also show written corrections (uses the chat model above)</label>
     </section>
 
     <section class="group">
@@ -204,14 +213,14 @@
 
     <details class="group adv">
       <summary>Prices used for the cost counter</summary>
-      <p class="hint">Dollars. Filled in from OpenAI's published prices for the models selected above. Change a number if OpenAI changes a price.</p>
+      <p class="hint">Dollars. Filled in from the published prices for the models selected above. Change a number if a price changes.</p>
       <div class="grid3" id="priceGrid"></div>
       <button type="button" class="pill-btn" id="resetPrices">Restore published prices</button>
     </details>
 
     <section class="group danger-zone">
-      <button type="button" class="pill-btn danger" id="forgetKey">Remove the OpenAI key from this device</button>
-      <button type="button" class="pill-btn danger" id="forgetGKey">Remove the Gemini key from this device</button>
+      <button type="button" class="pill-btn danger" id="forgetKey" data-prov="openai">Remove the OpenAI key from this device</button>
+      <button type="button" class="pill-btn danger" id="forgetGKey" data-prov="gemini">Remove the Gemini key from this device</button>
       <p class="hint ver">Version <span id="ver"></span></p>
     </section>
   </form>
