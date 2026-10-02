@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.22.4 (2026-10-02)';
+const VERSION = '2.22.5 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, cutSens: 10,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, cutSens: 10, sttFallback: false,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -1596,7 +1596,7 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels', 'saveData'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels', 'saveData', 'sttFallback'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
@@ -1830,6 +1830,9 @@ function init() {
     const voice = st.lastVoice && now - st.lastVoice < 0.8;
     box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} (voice from ${VOICE_LEVEL.toFixed(3)}) · partner ${talking ? 'speaking' : 'quiet'} · ${!open ? 'held back' : voice ? 'SENDING your voice' : 'waiting for your voice'}`;
   }, 250);
+  $('sttFallback').addEventListener('change', () => {
+    if ($('sttFallback').checked && !apiKey) setStatus('Add your OpenAI key first: in Settings choose OpenAI as provider, paste the key, then switch back to Gemini.', true);
+  });
   $('volume').value = S.volume; applyVolume();
   $('cutIn').addEventListener('click', () => {
     if (gl) cutInGemini();

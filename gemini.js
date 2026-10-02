@@ -546,14 +546,36 @@ async function betterTranscript(chunks) {
   const lang = S.langs === 'en'
     ? 'The speaker speaks English. Write English only.'
     : 'The speaker is an English learner and almost always speaks English: write English. Write Persian (in Persian script) only for words that are clearly Persian, and only when there are at least two Persian words. Any word you are not sure about: write your best English guess. Never use any other language or script.';
-  const text = await Promise.race([
-    geminiGenerate('gemini-3.8-flash', 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang,
-      [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(new Uint8Array(wav.buffer)) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
-      300, false, 'stt'),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000)),
-  ]);
-  return String(text || '').replace(/^["\s]+|["\s]+$/g, '').trim();
+  const rule = 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang;
+  const clean = (t) => String(t || '').replace(/^["\s]+|["\s]+$/g, '').trim();
+  // Setting "sttFallback" (Gemini Live + GPT transcription): while Gemini's free transcription limit is reached,
+  // OpenAI gpt-4o-transcribe writes your words instead; Gemini is tried again after a minute.
+  const useGpt = S.sttFallback && apiKey;
+  if (!(useGpt && geminiSttRestUntil > Date.now())) {
+    try {
+      const text = await Promise.race([
+        geminiGenerate('gemini-3.8-flash', rule,
+          [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(new Uint8Array(wav.buffer)) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
+          300, false, 'stt'),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000)),
+      ]);
+      return clean(text);
+    } catch (e) {
+      if (!useGpt || !/free limit|429|quota|exhausted/i.test(String(e && e.message))) throw e;
+      geminiSttRestUntil = Date.now() + 60000;
+    }
+  }
+  const fd = new FormData();
+  fd.append('file', new Blob([new Uint8Array(wav.buffer)], { type: 'audio/wav' }), 'speech.wav');
+  fd.append('model', 'gpt-4o-transcribe'); fd.append('response_format', 'json'); fd.append('prompt', rule);
+  if (S.langs === 'en') fd.append('language', 'en');
+  const res = await Promise.race([fetch(API + '/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 10000))]);
+  if (!res.ok) throw await apiError(res);
+  const sec = len / 32000; addCost('stt', (sec / 60) * 0.006, { sttSec: sec });
+  return clean((await res.json()).text);
 }
+let geminiSttRestUntil = 0; // Gemini transcription hit its free limit: GPT is used until this time
 function onGeminiMsg(st, msg) {
   if (msg.setupComplete) {
     st.setupDone = true;
