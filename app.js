@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.6.1 (2026-10-02)';
+const VERSION = '2.8.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'short',
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true,
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
@@ -85,6 +85,19 @@ function needKeys(models) {
   setStatus(`Add your ${k} key in Settings first.`, true); openSettings(); return false;
 }
 function endAnyCall(msg, isErr) { if (rt) endCall(msg, isErr); if (gl) endGemini(msg, isErr); }
+
+/* ---------- platform ---------- */
+const UA = navigator.userAgent || '';
+const IS_IOS = /iPad|iPhone|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/i.test(UA);
+const PLATFORM = IS_IOS ? 'ios' : IS_ANDROID ? 'android' : 'desktop';
+const DEVICE_VOICE = IS_IOS ? 'iPhone voice' : IS_ANDROID ? 'Android voice' : 'Device voice';
+document.documentElement.dataset.platform = PLATFORM;
+function micHelp() {
+  if (IS_IOS) return 'Microphone access is off. In Safari tap aA, then Website Settings, then Microphone: Allow. Then tap again.';
+  if (IS_ANDROID) return 'Microphone access is off. Tap the icon left of the address, then Permissions, then Microphone: Allow. Then tap again.';
+  return 'Microphone access is off. Allow it from the icon in the address bar, then tap again.';
+}
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html !== undefined) n.innerHTML = html; return n; };
@@ -174,7 +187,7 @@ function renderEngineChip() {
   $('engineChip').dataset.engine = e;
   $('engineName').textContent = e === 'realtime' ? 'OpenAI Realtime' : e === 'glive' ? 'Gemini Live' : 'Turn by turn';
   $('engineModel').textContent = e === 'realtime' ? `${S.rtModel}, ${S.rtVoice}` : e === 'glive' ? `${S.gLiveModel}, ${S.gVoice}` :
-    `${S.chatModel}, ${S.voiceEngine === 'device' ? 'iPhone voice' : S.openaiVoice}`;
+    `${S.chatModel}, ${S.voiceEngine === 'device' ? DEVICE_VOICE : S.openaiVoice}`;
 }
 function scrollDown(log) { requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; }); if (log.id === 'log') persistChat(); }
 let persistTimer = null;
@@ -279,7 +292,34 @@ const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAE
 function setAudioSession(type) {
   try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { /* older browsers */ }
 }
+/* iPhone sends page audio (Web Audio) to the ringer channel, so the volume buttons ignore it.
+   A silent clip looping in an <audio> element opens the media channel; the page's other audio then
+   follows the media volume and the volume buttons work. Started from a tap, paused in the background. */
+let mediaKeeper = null;
+function silentLoopUrl() {
+  const n = 8000; const b = new DataView(new ArrayBuffer(44 + n));
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) b.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); b.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); b.setUint32(16, 16, true);
+  b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, 8000, true); b.setUint32(28, 8000, true);
+  b.setUint16(32, 1, true); b.setUint16(34, 8, true); w(36, 'data'); b.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) b.setUint8(44 + i, 128); // 8-bit silence
+  return URL.createObjectURL(new Blob([b.buffer], { type: 'audio/wav' }));
+}
+function keepMediaChannel() {
+  if (!IS_IOS) return; // only iPhone needs it; on Android it would add a media notification
+  try {
+    if (!mediaKeeper) {
+      mediaKeeper = new Audio(silentLoopUrl());
+      mediaKeeper.loop = true; mediaKeeper.setAttribute('playsinline', ''); mediaKeeper.volume = 1;
+      if ('mediaSession' in navigator && window.MediaMetadata) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: 'EN Speaking', artist: 'English practice' });
+      }
+    }
+    if (mediaKeeper.paused) mediaKeeper.play().catch(() => {});
+  } catch { /* not supported */ }
+}
 function unlockAudio() {
+  keepMediaChannel();
   if (!rec && !rt && !gl) setAudioSession('playback');
   if (audioUnlocked) return;
   audioUnlocked = true;
@@ -347,7 +387,7 @@ async function speak(text, rate = Number(S.rate)) {
   try {
     if (S.voiceEngine === 'openai') await speakOpenAI(text, rate); else await speakDevice(text, rate);
   } catch (e) {
-    setStatus(e.message + ' Using the iPhone voice instead.', true);
+    setStatus(e.message + ` Using the ${DEVICE_VOICE} instead.`, true);
     await speakDevice(text, rate);
   }
   if (phase === 'speak') { setPhase('idle'); setStatus(mode === 'talk' ? 'Your turn. Tap the circle or type.' : 'Tap the circle and repeat.'); }
@@ -363,9 +403,31 @@ function getCtx() {
   } catch { audioCtx = null; }
   return audioCtx;
 }
+/* One microphone stream for the whole visit. Safari asks for permission again when the mic has been
+   off for about a minute, so between turns the mic is muted instead of closed (setting "keepMic").
+   It is fully released when the app goes to the background. */
+let micStream = null;
+async function getMic() {
+  if (micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live')) {
+    micStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+    return micStream;
+  }
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  return micStream;
+}
+function releaseMic(force = false) {
+  if (!micStream) return;
+  if (S.keepMic && !force && !document.hidden) { micStream.getAudioTracks().forEach((t) => { t.enabled = false; }); return; }
+  micStream.getTracks().forEach((t) => t.stop()); micStream = null;
+}
+function buzz(ms) { try { if (IS_ANDROID && navigator.vibrate) navigator.vibrate(ms); } catch { /* ignore */ } }
+
 function pickMime() {
   if (!window.MediaRecorder) return null;
-  for (const [m, ext] of [['audio/mp4', 'mp4'], ['audio/webm;codecs=opus', 'webm'], ['audio/webm', 'webm'], ['audio/ogg;codecs=opus', 'ogg']]) {
+  const order = IS_IOS
+    ? [['audio/mp4', 'mp4'], ['audio/webm;codecs=opus', 'webm'], ['audio/webm', 'webm'], ['audio/ogg;codecs=opus', 'ogg']]
+    : [['audio/webm;codecs=opus', 'webm'], ['audio/webm', 'webm'], ['audio/ogg;codecs=opus', 'ogg'], ['audio/mp4', 'mp4']];
+  for (const [m, ext] of order) {
     if (MediaRecorder.isTypeSupported(m)) return { mime: m, ext };
   }
   return { mime: '', ext: 'webm' };
@@ -394,11 +456,11 @@ async function startRec() {
   if (!fmt || !navigator.mediaDevices?.getUserMedia) { setStatus('This browser cannot record audio.', true); return; }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    stream = await getMic();
   } catch (e) {
     setAudioSession('playback');
     setPhase('idle');
-    setStatus(e.name === 'NotAllowedError' ? 'Microphone access is off. Allow it for this site in Safari, then tap again.' : 'Microphone error: ' + e.message, true);
+    setStatus(e.name === 'NotAllowedError' ? micHelp() : 'Microphone error: ' + e.message, true);
     return;
   }
   const chunks = [];
@@ -407,7 +469,7 @@ async function startRec() {
   rec = r;
   mr.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
   mr.onstop = () => onRecorded(r);
-  mr.start();
+  mr.start(); buzz(15);
   setPhase('rec');
   setStatus(S.autoStop ? 'Listening. I send it when you pause.' : 'Listening. Tap again when you finish.');
 
@@ -429,8 +491,9 @@ function stopRec() {
   const r = rec; if (!r || r.stopped) return;
   r.stopped = true; r.t1 = performance.now();
   try { r.mr.stop(); } catch { /* ignore */ }
-  r.stream.getTracks().forEach((t) => t.stop()); // an open mic makes iPhone speech quiet
+  releaseMic();
   setAudioSession('playback');
+  buzz(10);
   if (r.stopMeter) r.stopMeter();
   levels.mic = 0;
   setPhase('think'); setStatus('Thinking...');
@@ -490,6 +553,15 @@ function topicLine(kind) {
   if (kind === 'drill') return t ? `Use sentences about this topic: ${t}.` : '';
   return t ? `Conversation topic: ${t}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.';
 }
+function openingLine(kind) {
+  const t = $('topic').value.trim();
+  if (kind === 'drill') {
+    return t ? `The learner wants to practice this situation: ${t}. Make every sentence fit it. Start right away with the first sentence.`
+      : 'At the very start, greet the learner briefly and ask in one short sentence which real-life situation they want to practice, for example ordering at a cafe, a job interview, or a doctor visit. Wait for the answer, then make every sentence fit the situation they describe. If they describe their own situation in detail, use their details.';
+  }
+  return t ? `The learner chose this topic or situation: ${t}. Start the conversation about it right away with a friendly question.`
+    : 'At the very start, greet the learner briefly and ask in one short sentence what they want to talk about or which real-life situation they want to practice, for example a job interview, ordering food, or small talk with a neighbor. Then build the whole conversation around what they describe, using their own details.';
+}
 function promptVars(extra = {}) {
   const speakFix = S.strict !== 'off' && S.sayCorrections;
   const scope = S.strict === 'major'
@@ -502,7 +574,7 @@ function promptVars(extra = {}) {
     speakingPace: speakingPace(),
     feedbackLength: S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences',
     corrections: tutorRules(), correctionScope: scope,
-    topic: topicLine('talk'), inputNote: '',
+    topic: topicLine('talk'), inputNote: '', opening: openingLine('talk'),
   };
   Object.assign(v, extra);
   if (v.spokenCorrections === undefined) {
@@ -694,7 +766,7 @@ async function startCall(kind = 'talk') {
   const state = { kind, pc: null, dc: null, stream: null, audio: null, stopMeters: [], items: {}, t0: 0, timer: null };
   rt = state;
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    state.stream = await getMic();
     const sessionCfg = {
       type: 'realtime', model: S.rtModel, instructions: kind === 'repeat' ? repeatInstructions() : rtInstructions(),
       audio: {
@@ -725,8 +797,8 @@ async function startCall(kind = 'talk') {
     dc.onopen = () => {
       state.t0 = performance.now();
       setPhase('call');
-      if (kind === 'repeat') { setStatus('Live drill. Listen, then repeat. Tap the circle to stop.'); rtSay("Let's start. Give me the first sentence."); }
-      else setStatus('You are live. Just talk. Tap the circle to hang up.');
+      if (kind === 'repeat') { setStatus('Live drill. Listen, then repeat. Tap the circle to stop.'); rtSay("Hi! Let's start."); }
+      else { setStatus('You are live. Just talk. Tap the circle to hang up.'); rtSay('Hi!'); }
       state.timer = setInterval(() => {
         if (rt !== state) return;
         const sec = (performance.now() - state.t0) / 1000;
@@ -739,7 +811,7 @@ async function startCall(kind = 'talk') {
     if (!ares.ok) throw await apiError(ares);
     await pc.setRemoteDescription({ type: 'answer', sdp: await ares.text() });
   } catch (e) {
-    endCall(e.name === 'NotAllowedError' ? 'Microphone access is off. Allow it for this site in Safari.' : e.message, true);
+    endCall(e.name === 'NotAllowedError' ? micHelp() : e.message, true);
   }
 }
 function endCall(msg, isErr = false) {
@@ -750,7 +822,7 @@ function endCall(msg, isErr = false) {
   st.stopMeters.forEach((f) => f());
   try { st.dc && st.dc.close(); } catch { /* ignore */ }
   try { st.pc && st.pc.close(); } catch { /* ignore */ }
-  if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
+  if (st.stream) releaseMic();
   if (st.audio) { st.audio.srcObject = null; st.audio.remove(); }
   setAudioSession('playback');
   levels.mic = levels.ai = 0;
@@ -1009,7 +1081,12 @@ function syncProviderUI() {
   });
   fillModelSelects();
 }
+function syncTargetHint() {
+  if (target) return;
+  $('target').textContent = usesCall() ? 'Tap the circle to start. The coach will ask what you want to practice.' : 'Tap Next sentence to begin.';
+}
 function syncEngineUI() {
+  syncTargetHint();
   document.querySelectorAll('input[name="engine"]').forEach((r) => { r.checked = r.value === S.engine; });
   // show only the settings of the engine in use; speed and practice settings stay visible
   $('turnGroup').hidden = isCallEngine();
@@ -1050,34 +1127,47 @@ async function checkGeminiKey() {
   } catch (e) { hint.className = 'hint bad'; hint.textContent = e.message; }
 }
 
+const PROMPT_GROUPS = [
+  ['Conversation tab', ['liveConversation', 'liveCorrections', 'conversation']],
+  ['Repeat after me tab', ['liveRepeat', 'repeatSentence']],
+  ['Both tabs', ['checker', 'transcription']],
+];
+function promptLabel(k) { return (PROMPTS.find((p) => p[0] === k) || [k, k])[1]; }
+/* One box per instruction, each with its own Save and Reset. */
 function renderPromptEditor() {
-  const key = $('promptKey').value || PROMPTS[0][0];
-  const edited = typeof promptEdits[key] === 'string';
-  let text = '';
-  try { text = rawPrompt(key); } catch (e) { text = ''; }
-  $('promptText').value = text;
-  const st = $('promptState');
-  st.className = 'hint' + (edited ? ' ok' : '');
-  st.textContent = edited ? 'Using your saved version.' : (promptDefaults ? 'Using the default from GitHub.' : 'The defaults have not loaded yet.');
+  const list = $('promptList'); if (!list) return;
+  const open = new Set([...list.querySelectorAll('details[open]')].map((d) => d.dataset.key));
+  list.innerHTML = '';
+  PROMPT_GROUPS.forEach(([title, keys]) => {
+    list.appendChild(el('h4', 'prompt-group', esc(title)));
+    keys.forEach((key) => {
+      const edited = typeof promptEdits[key] === 'string';
+      const d = el('details', 'prompt-box'); d.dataset.key = key; if (open.has(key)) d.open = true;
+      d.innerHTML = `<summary>${esc(promptLabel(key))}<span class="badge${edited ? ' on' : ''}">${edited ? 'your version' : 'default'}</span></summary>`;
+      const ta = el('textarea'); ta.rows = 10; ta.spellcheck = false; ta.setAttribute('aria-label', promptLabel(key));
+      try { ta.value = rawPrompt(key); } catch { ta.value = ''; }
+      const msg = el('p', 'hint');
+      const row = el('div', 'row-btns');
+      const save = el('button', 'pill-btn strong', 'Save'); save.type = 'button';
+      const reset = el('button', 'pill-btn', 'Reset to default'); reset.type = 'button';
+      save.onclick = () => {
+        if (!ta.value.trim()) { msg.className = 'hint bad'; msg.textContent = 'Empty instructions cannot be saved. Use Reset instead.'; return; }
+        promptEdits[key] = ta.value; store.set('ens.prompts', promptEdits);
+        liveSettingsChanged(); renderPromptEditor();
+        const m = $('promptList').querySelector(`details[data-key="${key}"] .hint`); if (m) { m.className = 'hint ok'; m.textContent = 'Saved. Used from now on.'; }
+      };
+      reset.onclick = async () => {
+        delete promptEdits[key]; store.set('ens.prompts', promptEdits);
+        try { await loadPromptDefaults(true); } catch (e) { msg.className = 'hint bad'; msg.textContent = e.message; return; }
+        liveSettingsChanged(); renderPromptEditor();
+        const m = $('promptList').querySelector(`details[data-key="${key}"] .hint`); if (m) { m.className = 'hint ok'; m.textContent = 'Back to the default from GitHub.'; }
+      };
+      row.append(save, reset); d.append(ta, row, msg); list.appendChild(d);
+    });
+  });
+  if (!promptDefaults) $('promptState').textContent = 'The defaults have not loaded yet. Check the internet connection.';
 }
 function bindPrompts() {
-  const sel = $('promptKey');
-  PROMPTS.forEach(([k, label]) => { const o = el('option'); o.value = k; o.textContent = label; sel.appendChild(o); });
-  sel.addEventListener('change', renderPromptEditor);
-  $('promptSave').addEventListener('click', () => {
-    const key = sel.value; const text = $('promptText').value;
-    if (!text.trim()) { $('promptState').className = 'hint bad'; $('promptState').textContent = 'Empty instructions cannot be saved. Use Reset instead.'; return; }
-    promptEdits[key] = text; store.set('ens.prompts', promptEdits);
-    renderPromptEditor(); $('promptState').textContent = 'Saved. Used from now on.';
-    liveSettingsChanged();
-  });
-  $('promptReset').addEventListener('click', async () => {
-    const key = sel.value;
-    delete promptEdits[key]; store.set('ens.prompts', promptEdits);
-    try { await loadPromptDefaults(true); } catch (e) { $('promptState').className = 'hint bad'; $('promptState').textContent = e.message; return; }
-    renderPromptEditor(); $('promptState').textContent = 'Back to the default from GitHub.';
-    liveSettingsChanged();
-  });
   let armed = null;
   $('promptResetAll').addEventListener('click', async () => {
     const b = $('promptResetAll');
@@ -1085,7 +1175,7 @@ function bindPrompts() {
     clearTimeout(armed); armed = null; b.textContent = 'Reset all instructions';
     promptEdits = {}; store.set('ens.prompts', promptEdits);
     try { await loadPromptDefaults(true); } catch (e) { $('promptState').className = 'hint bad'; $('promptState').textContent = e.message; return; }
-    renderPromptEditor(); $('promptState').textContent = 'All instructions are back to the defaults from GitHub.';
+    renderPromptEditor(); $('promptState').className = 'hint ok'; $('promptState').textContent = 'All instructions are back to the defaults from GitHub.';
     liveSettingsChanged();
   });
   renderPromptEditor();
@@ -1123,9 +1213,9 @@ function bindSettings() {
       if (['level', 'strict', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
-    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); });
+    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
   document.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', () => {
     if (r.checked) { endAnyCall(); S.engine = r.value; S[S.provider === 'gemini' ? 'gEngine' : 'oaEngine'] = r.value; saveSettings(); syncEngineUI(); idleStatus(); }
@@ -1163,6 +1253,7 @@ function switchMode(m) {
   document.querySelectorAll('.seg').forEach((b) => { const on = b.dataset.mode === m; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   document.querySelector('.segmented').dataset.mode = m;
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat';
+  syncTargetHint();
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
   if (m === 'repeat' && usesCall()) setStatus('Tap the circle to start. The coach says a sentence, you repeat it, it tells you how it went.');
@@ -1188,7 +1279,7 @@ function lockZoom() {
 }
 /* Keep the layout inside the visible area when the keyboard opens (iOS does not shrink 100dvh for it). */
 function fitToViewport() {
-  const vv = window.visualViewport; if (!vv) return;
+  const vv = window.visualViewport; if (!vv || !IS_IOS) return; // Android resizes the layout itself (interactive-widget)
   const apply = () => {
     document.documentElement.style.setProperty('--app-h', Math.round(vv.height) + 'px');
     if (window.scrollY) window.scrollTo(0, 0);
@@ -1201,8 +1292,31 @@ function registerWorker() {
   }
 }
 
+/* Android: offer "Install app" when Chrome allows it. */
+let installEvent = null;
+function setupInstall() {
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvent = e; $('installBtn').hidden = false; });
+  window.addEventListener('appinstalled', () => { installEvent = null; $('installBtn').hidden = true; });
+  $('installBtn').addEventListener('click', async () => {
+    if (!installEvent) return;
+    installEvent.prompt(); try { await installEvent.userChoice; } catch { /* ignore */ }
+    installEvent = null; $('installBtn').hidden = true;
+  });
+}
+/* Android back button closes Settings instead of leaving the app. */
+function setupBackButton() {
+  const dlg = $('settings');
+  const H = window.history; // "history" in this file is the chat history
+  const opened = () => { try { H.pushState({ settings: true }, ''); } catch { /* ignore */ } };
+  new MutationObserver(() => { if (dlg.open) opened(); }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
+  dlg.addEventListener('close', () => { if (H.state && H.state.settings) H.back(); });
+  window.addEventListener('popstate', () => { if (dlg.open) dlg.close(); });
+}
+
 function init() {
-  lockZoom(); fitToViewport(); registerWorker();
+  lockZoom(); fitToViewport(); registerWorker(); setupInstall(); setupBackButton();
+  $('voiceEngine').options[0].textContent = `${DEVICE_VOICE} (free)`;
+  $('deviceVoiceLabel').textContent = DEVICE_VOICE;
   fillModelSelects();
   bindSettings();
   restoreChat(); emptyState(); renderSpend();
@@ -1229,15 +1343,21 @@ function init() {
       return;
     }
     clearTimeout(delArmed); delArmed = null; btn.textContent = 'Delete chat'; btn.classList.remove('danger');
-    endAnyCall();
-    history = []; $('log').innerHTML = ''; store.del('ens.chat'); emptyState(); stopSpeaking(); setPhase('idle');
+    endAnyCall(); stopSpeaking(); setPhase('idle');
+    if (mode === 'repeat') {
+      $('repeatLog').innerHTML = ''; target = null; attempts = 0;
+      syncTargetHint(); $('focus').textContent = '';
+      $('hearAgain').disabled = true; $('hearSlow').disabled = true;
+      emptyState(); setStatus('Practice deleted.');
+      return;
+    }
+    history = []; $('log').innerHTML = ''; store.del('ens.chat'); emptyState();
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
   $('log').addEventListener('click', (e) => {
     const b = e.target.closest('.play'); if (!b) return;
     unlockAudio(); stopSpeaking(); speak(b.dataset.say || b.parentNode.querySelector('.txt').textContent);
   });
-  $('clearRepeat').addEventListener('click', () => { $('repeatLog').innerHTML = ''; emptyState(); });
   // In a Gemini Live repeat drill these buttons ask the coach instead of the turn-by-turn engine.
   const liveRepeat = () => (gl && gl.kind === 'repeat') || (rt && rt.kind === 'repeat');
   const geminiSayOrRt = (text) => (gl ? geminiSay(text) : rtSay(text));
@@ -1258,7 +1378,7 @@ function init() {
   });
   $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }
+    if (document.hidden) { if (mediaKeeper) mediaKeeper.pause(); setTimeout(() => { if (document.hidden) releaseMic(true); }, 0); handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }
   });
   setPhase('idle');
   idleStatus();

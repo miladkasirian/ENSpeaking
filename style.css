@@ -347,9 +347,19 @@ dialog::backdrop { background: rgba(10, 16, 34, .5); backdrop-filter: blur(3px);
 }
 
 /* instructions editor */
-#promptText {
+#promptList textarea, #promptText {
   width: 100%; min-height: 220px; resize: vertical; padding: 10px 12px; border-radius: var(--r-sm);
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
   font: 16px/1.5 var(--body); /* 16px or more: iPhone zooms into smaller inputs */
 }
 .row-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.prompt-group { margin: 12px 0 4px; font: 650 14px/1.2 var(--display); color: var(--muted); }
+.prompt-box { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 8px; background: var(--bg); }
+.prompt-box summary { cursor: pointer; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.prompt-box[open] summary { margin-bottom: 8px; }
+.prompt-box .row-btns { margin-top: 8px; }
+.badge { font-size: 12px; font-weight: 400; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.badge.on { color: var(--good); border-color: var(--good); }
+
+.install-btn { padding: 6px 12px; font-size: 13.5px; }

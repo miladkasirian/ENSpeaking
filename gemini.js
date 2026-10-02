@@ -162,8 +162,8 @@ const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&
 
 function repeatInstructions() {
   return [
-    prompt('liveRepeat', { topic: topicLine('drill') }),
-    'ALWAYS end every turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence>". Then stop and wait. Use the same pattern when you ask for the same sentence again.',
+    prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
+    'Whenever you give the learner something to repeat, a whole sentence or a single word, end that turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence or word>". Then stop and wait. Do not use this pattern in any other turn.',
   ].join(' ');
 }
 /* Ask the coach for something during a live call, as if the learner had typed it. */
@@ -185,18 +185,28 @@ async function startGeminiCall(kind = 'talk') {
   if (!gKey) { setStatus('Add your Gemini key in Settings first.', true); openSettings(); return; }
   setPhase('connecting'); setStatus('Connecting to Gemini...');
   setAudioSession('play-and-record');
-  const st = { kind, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
+  // Gemini's voice is played through an <audio> element (media channel, volume buttons work).
+  // It is created and started here, still inside the tap, because iPhone blocks play() later.
+  const outCtx = getCtx();
+  let outEl = null, outDest = null;
+  try {
+    outDest = outCtx.createMediaStreamDestination();
+    outEl = document.createElement('audio'); outEl.setAttribute('playsinline', ''); outEl.autoplay = true;
+    outEl.srcObject = outDest.stream; outEl.style.display = 'none'; document.body.appendChild(outEl);
+    outEl.play().catch(() => {});
+  } catch { outEl = null; outDest = null; }
+  const st = { kind, outEl, outDest, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
     t0: 0, timer: null, handle: null, basic: false, setupDone: false, closing: false, reconnects: 0, me: null, meText: '', ai: null, aiText: '', stops: [] };
   gl = st;
   try {
-    st.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    st.stream = await getMic();
     const ctx = getCtx(); if (!ctx || !ctx.audioWorklet) throw new Error('This browser cannot stream audio for Gemini Live.');
     st.ctx = ctx;
     if (!workletReady) {
       const url = URL.createObjectURL(new Blob([PCM_TAP], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url); workletReady = true;
     }
-    if (gl !== st) { st.stream.getTracks().forEach((t) => t.stop()); return; }
+    if (gl !== st) { releaseMic(); return; }
     const src = ctx.createMediaStreamSource(st.stream);
     const tap = new AudioWorkletNode(ctx, 'pcm-tap');
     const mute = ctx.createGain(); mute.gain.value = 0;
@@ -204,16 +214,20 @@ async function startGeminiCall(kind = 'talk') {
     tap.port.onmessage = (e) => onMicChunk(st, e.data);
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
-    st.out = ctx.createGain(); st.out.connect(ctx.destination);
+    st.out = ctx.createGain();
+    if (st.outDest && st.outEl && !st.outEl.paused) st.out.connect(st.outDest); else st.out.connect(ctx.destination);
     const an = ctx.createAnalyser(); an.fftSize = 512; st.out.connect(an);
     const buf = new Float32Array(an.fftSize); let alive = true;
     const tick = () => { if (!alive) return; an.getFloatTimeDomainData(buf); let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i]; levels.ai = Math.min(1, Math.sqrt(s / buf.length) * 9); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
-    st.stops.push(() => { alive = false; try { st.out.disconnect(); } catch { /* ignore */ } });
+    st.stops.push(() => {
+      alive = false; try { st.out.disconnect(); } catch { /* ignore */ }
+      if (st.outEl) { try { st.outEl.pause(); st.outEl.srcObject = null; st.outEl.remove(); } catch { /* ignore */ } }
+    });
     const m = meter(st.stream, (rms) => { levels.mic = Math.min(1, rms * 10); }); if (m) st.stops.push(m);
     openGeminiSocket(st);
   } catch (e) {
-    endGemini(e.name === 'NotAllowedError' ? 'Microphone access is off. Allow it for this site in Safari.' : e.message, true);
+    endGemini(e.name === 'NotAllowedError' ? micHelp() : e.message, true);
   }
 }
 function geminiSetup(st) {
@@ -310,8 +324,11 @@ function onGeminiMsg(st, msg) {
     setPhase('call');
     if (st.kind === 'repeat') {
       setStatus('Live drill with Gemini. Listen, then repeat. Tap the circle to stop.');
-      if (!st.started) { st.started = true; geminiSay('Let\'s start. Give me the first sentence.'); }
-    } else setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
+      if (!st.started) { st.started = true; geminiSay("Hi! Let's start."); }
+    } else {
+      setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
+      if (!st.started) { st.started = true; geminiSay('Hi!'); }
+    }
     return;
   }
   if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.newHandle) st.handle = msg.sessionResumptionUpdate.newHandle;
@@ -379,7 +396,8 @@ function endGemini(msg, isErr = false) {
   try { st.ws && st.ws.close(); } catch { /* ignore */ }
   cutPlayback(st);
   st.stops.forEach((f) => f());
-  if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
+  if (st.stream) releaseMic();
+  if (st.outEl) { try { st.outEl.pause(); st.outEl.srcObject = null; st.outEl.remove(); } catch { /* ignore */ } }
   if (st.me || st.meStarted) finishMyTurn(st);
   setAudioSession('playback');
   levels.mic = levels.ai = 0;
