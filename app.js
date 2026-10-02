@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.17.3 (2026-10-02)';
+const VERSION = '2.18.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,8 +38,8 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'B1', strict: 5, explainLang: 'English', replyLen: 'short',
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, bargeIn: false,
+  level: 'B1', strict: 5, explainLang: 'English', replyLen: 1,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, bargeIn: false, saveData: true,
   talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
@@ -62,6 +62,9 @@ const S = Object.assign({}, DEFAULTS, store.get('ens.settings', {}));
 // corrections used to be a list (all / major / off); it is now a 0 to 5 scale
 if (typeof S.strict === 'string') S.strict = { all: 5, major: 2, off: 0 }[S.strict] ?? (Number(S.strict) || 5);
 S.strict = Math.max(0, Math.min(5, Math.round(Number(S.strict))));
+// reply length used to be short / medium; it is now a 1 to 5 scale
+if (typeof S.replyLen === 'string') S.replyLen = { short: 1, medium: 2 }[S.replyLen] || Number(S.replyLen) || 1;
+S.replyLen = Math.max(1, Math.min(5, Math.round(Number(S.replyLen))));
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
   const g = S.provider === 'gemini';
@@ -540,7 +543,7 @@ function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
   if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}.`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
-  const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN.short}.`;
+  const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
   if (isOpenTalk()) corr = 'Do not correct the learner at all.';
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
@@ -549,9 +552,13 @@ function settingsRule(kind) {
   return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}`;
 }
 const REPLY_LEN = {
-  short: 'SHORT: one or two short sentences, at most 25 words in total',
-  medium: 'MEDIUM: three to five sentences, about 40 to 70 words in total',
+  1: 'SHORT: one or two short sentences, at most 25 words in total',
+  2: 'MEDIUM: three to five sentences, about 40 to 70 words in total',
+  3: 'LONGER: five to seven sentences, about 70 to 110 words in total',
+  4: 'LONG: seven to ten sentences, about 110 to 160 words in total',
+  5: 'VERY LONG: a full, rich answer of about 180 to 250 words, longer than a usual conversation turn',
 };
+const LEN_NAMES = ['', 'Short', 'Medium', 'Longer', 'Long', 'Very long'];
 /* ---------- editable instructions ----------
    Defaults live in prompts.json on GitHub. Your saved edits (localStorage) win until you reset them.
    The output formats the app depends on are added by the code, so an edit cannot break the app. */
@@ -600,10 +607,10 @@ function promptVars(extra = {}) {
   const scope = strictRule();
   const v = {
     level: S.level, explainLang: S.explainLang,
-    replyLength: REPLY_LEN[S.replyLen] || REPLY_LEN.short,
+    replyLength: REPLY_LEN[S.replyLen] || REPLY_LEN[1],
     drillLength: drillLength(),
     speakingPace: speakingPace(),
-    feedbackLength: S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences',
+    feedbackLength: ['', 'one short sentence, at most 15 words', 'two or three sentences', 'three or four sentences', 'four or five sentences', 'five or six sentences'][S.replyLen] || 'one short sentence',
     corrections: tutorRules(), correctionScope: scope,
     topic: topicLine('talk'), inputNote: '', opening: openingLine('talk'),
   };
@@ -645,10 +652,14 @@ function speakingPace() {
 }
 /* Drill sentence length follows both the level and the Short/Medium setting. */
 function drillLength() {
-  const t = S.replyLen === 'short'
-    ? { A2: '4 to 7 words', B1: '5 to 9 words', B2: '6 to 10 words', C1: '7 to 12 words' }
-    : { A2: '6 to 10 words', B1: '8 to 13 words', B2: '10 to 16 words', C1: '12 to 20 words' };
-  return t[S.level] || t.B1;
+  const t = {
+    1: { A2: '4 to 7 words', B1: '5 to 9 words', B2: '6 to 10 words', C1: '7 to 12 words' },
+    2: { A2: '6 to 10 words', B1: '8 to 13 words', B2: '10 to 16 words', C1: '12 to 20 words' },
+    3: { A2: '8 to 12 words', B1: '10 to 15 words', B2: '12 to 18 words', C1: '14 to 22 words' },
+    4: { A2: '10 to 14 words', B1: '12 to 18 words', B2: '15 to 22 words', C1: '18 to 26 words' },
+    5: { A2: '12 to 16 words', B1: '15 to 22 words', B2: '18 to 26 words', C1: '22 to 30 words' },
+  }[S.replyLen] || {};
+  return t[S.level] || t.B1 || '5 to 9 words';
 }
 function talkSystemPrompt(typed) {
   return [
@@ -1449,7 +1460,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1458,10 +1469,10 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
-      if (['level', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
+      if (['level', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic', 'bargeIn'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic', 'bargeIn', 'saveData'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
@@ -1476,6 +1487,10 @@ function bindSettings() {
   $('strict').value = S.strict; showStrict();
   $('strict').addEventListener('input', () => { S.strict = Number($('strict').value); showStrict(); saveSettings(); });
   $('strict').addEventListener('change', () => liveSettingsChanged());
+  const showLen = () => { $('replyLenVal').textContent = `${S.replyLen}: ${LEN_NAMES[S.replyLen]}`; };
+  $('replyLen').value = S.replyLen; showLen();
+  $('replyLen').addEventListener('input', () => { S.replyLen = Number($('replyLen').value); showLen(); saveSettings(); });
+  $('replyLen').addEventListener('change', () => liveSettingsChanged());
   $('testVoice').addEventListener('click', () => { unlockAudio(); stopSpeaking(); speak('Hi! This is how I sound. Shall we practice some English?'); });
   $('resetPrices').addEventListener('click', () => { S.prices = {}; saveSettings(); renderPrices(); fillModelSelects(); });
   $('resetTotals').addEventListener('click', () => { Object.keys(totals).forEach((k) => { totals[k] = 0; }); store.set('ens.totals', totals); renderTotals(); renderSpend(); });

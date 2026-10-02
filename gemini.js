@@ -308,11 +308,31 @@ function onMicChunk(st, f32) {
   let sum = 0;
   for (let i = 0; i < st.q.length; i++) { const v = Math.max(-1, Math.min(1, st.q[i])); sum += v * v; pcm.setInt16(i * 2, v * 0x7fff, true); }
   const rms = Math.sqrt(sum / st.q.length);
-  const chunk = bytesToB64(new Uint8Array(pcm.buffer));
-  st.sentSec += st.q.length / 16000; st.q = [];
-  const send = (data) => st.ws.send(JSON.stringify({ realtimeInput: { audio: { data, mimeType: 'audio/pcm;rate=16000' } } }));
-  if (!echoGate(st, rms, chunk)) { send(SILENCE_40MS); return; }
-  if (st.preroll && st.preroll.length) { st.preroll.forEach(send); st.preroll = []; }
+  const chunk = bytesToB64(new Uint8Array(pcm.buffer)); const sec = st.q.length / 16000;
+  st.q = [];
+  const send = (data, s = sec) => { st.sentSec += s; st.ws.send(JSON.stringify({ realtimeInput: { audio: { data, mimeType: 'audio/pcm;rate=16000' } } })); };
+  // the last 0.32 s, so the start of your words is not lost when sending resumes
+  st.ring = (st.ring || []).concat(chunk).slice(-8);
+  const pause = () => {
+    // "Save data": tell Gemini the mic stream paused instead of streaming silence
+    if (S.saveData) { if (!st.paused) st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); }
+    else send(SILENCE_40MS, 0.04);
+    st.paused = true;
+  };
+  const resume = (withRing) => {
+    if (withRing) st.ring.forEach((c) => send(c, 0.04)); else send(chunk);
+    st.ring = []; st.paused = false;
+  };
+  if (!echoGate(st, rms, chunk)) { pause(); return; }
+  if (st.flushRing) { st.flushRing = false; resume(true); return; } // you started talking over the partner
+  if (S.saveData) {
+    // send only while you speak (plus 1 s after, so Gemini hears you finish)
+    const now = st.ctx.currentTime; const floor = st.noiseFloor || 0.01;
+    const voice = rms > Math.max(0.015, floor * 2.5);
+    if (voice) st.lastVoice = now; else st.noiseFloor = floor * 0.95 + rms * 0.05;
+    if (!st.lastVoice || now - st.lastVoice > 1.0) { pause(); return; }
+    if (st.paused) { resume(true); return; }
+  } else if (st.paused) { st.paused = false; }
   send(chunk);
 }
 /* Echo gate. On the phone speaker the partner's voice comes back into the mic, and the browser cannot
@@ -326,15 +346,13 @@ function echoGate(st, rms, chunk) {
   const now = st.ctx.currentTime;
   // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
   const talking = st.playT && now < st.playT + 0.5;
-  if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.preroll = []; st.loud = 0; return true; }
+  if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.loud = 0; return true; }
   if (!st.replyStart) st.replyStart = now;
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
-  // keep the last 0.2 s so the start of your words is not lost if the gate opens
-  st.preroll = (st.preroll || []).concat(chunk).slice(-5);
   const floor = st.echoFloor || 0.02;
   const learning = now - st.replyStart < 0.4; // start of each reply: only learn the echo level
   // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
-  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 3) { st.gateOpenUntil = now + 1.2; return true; } return false; }
+  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 3) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
   st.loud = 0;
   st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
   return false;
@@ -345,7 +363,14 @@ function playPcm24(st, b64) {
   const ab = st.ctx.createBuffer(1, n, 24000); const ch = ab.getChannelData(0);
   for (let i = 0; i < n; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
   const src = st.ctx.createBufferSource(); src.buffer = ab; src.connect(st.out);
-  st.playT = Math.max(st.playT, st.ctx.currentTime + 0.04);
+  // A small buffer before the partner's voice starts. If the voice runs dry in the middle of a reply
+  // (slow internet), the buffer grows, so later replies play smoothly instead of in bits.
+  const now = st.ctx.currentTime; st.jitter = st.jitter || 0.15;
+  if (st.playT < now) {
+    if (st.inReply) { st.jitter = Math.min(1.0, st.jitter + 0.15); st.underran = true; }
+    st.playT = now + st.jitter;
+  }
+  st.inReply = true;
   src.start(st.playT); st.playT += ab.duration; st.outSec += ab.duration;
   st.sources.push(src); src.onended = () => { st.sources = st.sources.filter((x) => x !== src); };
 }
@@ -401,7 +426,7 @@ function onGeminiMsg(st, msg) {
   const sc = msg.serverContent;
   if (!sc) return;
   const log = st.kind === 'repeat' ? $('repeatLog') : $('log');
-  if (sc.interrupted) cutPlayback(st);
+  if (sc.interrupted) { cutPlayback(st); st.inReply = false; }
   if (st.kind === 'repeat' && sc.inputTranscription && sc.inputTranscription.text) {
     st.meText += sc.inputTranscription.text; st.meStarted = true;
     $('status').textContent = 'Hearing: ' + st.meText.trim();
@@ -436,6 +461,9 @@ function onGeminiMsg(st, msg) {
     return;
   }
   if (sc.turnComplete) {
+    st.inReply = false;
+    if (!st.underran && st.jitter > 0.15) st.jitter = Math.max(0.15, st.jitter - 0.05); // smooth again: shrink the buffer
+    st.underran = false;
     finishMyTurn(st);
     if (st.ai && st.aiText.trim()) { st.prevAi = lastAiTurn.text; history.push({ role: 'assistant', content: st.aiText.trim() }); history = history.slice(-16); liveTalkTurnDone(st.aiText.trim()); }
     st.ai = null; st.aiText = '';
