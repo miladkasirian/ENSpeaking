@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.2 (2026-10-02)';
+const VERSION = '2.19.3 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true, aiNoise: true,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', speed: 2, rate: 0.85, volume: 100,
@@ -75,7 +75,7 @@ if (!S.defaults2) {
   store.set('ens.settings', S);
 }
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
-if (!S.defaults5) { S.saveData = false; S.defaults5 = true; store.set('ens.settings', S); } // send the voice instantly by default, applied once
+if (!S.defaults6) { S.saveData = true; S.aiNoise = true; S.defaults6 = true; store.set('ens.settings', S); } // data saver and AI noise removal on, applied once
 if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
@@ -443,7 +443,8 @@ let audioCtx = null;
 let rec = null;
 function getCtx() {
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // 48 kHz: the rate the AI noise removal works at (the browser converts to and from the hardware)
+    if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; try { audioCtx = new AC({ sampleRate: 48000 }); } catch { audioCtx = new AC(); } }
     if (audioCtx.state === 'suspended') audioCtx.resume();
   } catch { audioCtx = null; }
   return audioCtx;
@@ -788,9 +789,9 @@ function renderFix(log, out) {
 }
 /* Background noise often comes back from speech detection as a filler sound or a few symbols. */
 function isNoise(text) {
+  // only empty or symbol-only text; short answers like "uh-huh", "mm-hmm" or "oh" are real answers and stay
   const t = String(text || '').trim();
-  if (!t || !/\p{L}/u.test(t)) return true;
-  return /^(uh+|um+|hm+|mm+|ah+|oh+|eh+|huh|uh-huh|mhm|hmm+)[\s.,!?…-]*$/i.test(t);
+  return !t || !/\p{L}/u.test(t);
 }
 /* Is this "what I heard" really the partner's own voice coming back from the speaker?
    True when the words appear, in order, in what the partner just said. A sentence you are
@@ -1583,7 +1584,7 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData', 'aiNoise'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });

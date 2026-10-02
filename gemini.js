@@ -160,6 +160,24 @@ let gl = null;
 let workletReady = false;
 const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("pcm-tap",T);';
 
+/* RNNoise (xiph.org, MIT license, via @sapphi-red/web-noise-suppressor): a small neural network that
+   removes background noise and keeps speech. It works at 48 kHz; on other rates the plain filter is used. */
+let rnnoiseBin = null; let rnnoiseCtx = null;
+async function rnnoiseNode(ctx) {
+  if (!S.aiNoise || ctx.sampleRate !== 48000) return null;
+  try {
+    if (rnnoiseCtx !== ctx) {
+      const simd = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+      if (!rnnoiseBin) rnnoiseBin = await (await fetch(simd ? 'vendor/rnnoise_simd.wasm' : 'vendor/rnnoise.wasm')).arrayBuffer();
+      await ctx.audioWorklet.addModule('vendor/rnnoise-worklet.js');
+      rnnoiseCtx = ctx;
+    }
+    return new AudioWorkletNode(ctx, '@sapphi-red/web-noise-suppressor/rnnoise', {
+      channelCount: 1, channelCountMode: 'explicit', channelInterpretation: 'speakers',
+      processorOptions: { maxChannels: 1, wasmBinary: rnnoiseBin },
+    });
+  } catch { return null; }
+}
 function repeatInstructions() {
   return [
     prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
@@ -216,8 +234,11 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     // so low rumble/hum (fans, traffic, AC) and high hiss are cut. The browser's own noise suppression is also on.
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110; hp.Q.value = 0.7;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4000; lp.Q.value = 0.7;
-    src.connect(hp); hp.connect(lp); lp.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
-    st.stops.push(() => { try { hp.disconnect(); lp.disconnect(); } catch { /* ignore */ } });
+    const ai = await rnnoiseNode(ctx); // AI noise removal: keeps the human voice, removes background noise
+    if (gl !== st) { releaseMic(true); return; }
+    if (ai) { src.connect(ai); ai.connect(hp); } else src.connect(hp);
+    hp.connect(lp); lp.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
+    st.stops.push(() => { try { hp.disconnect(); lp.disconnect(); if (ai) { ai.disconnect(); ai.port.postMessage('destroy'); } } catch { /* ignore */ } });
     tap.port.onmessage = (e) => onMicChunk(st, e.data);
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
@@ -332,7 +353,7 @@ function onMicChunk(st, f32) {
   if (S.saveData) {
     // send only while you speak (plus 1 s after, so Gemini hears you finish)
     const now = st.ctx.currentTime; const floor = st.noiseFloor || 0.01;
-    const voice = rms > Math.max(0.015, floor * 2.5);
+    const voice = rms > Math.max(0.008, floor * 2); // sensitive, so the start of your words goes out at once
     if (voice) st.lastVoice = now; else st.noiseFloor = floor * 0.95 + rms * 0.05;
     if (!st.lastVoice || now - st.lastVoice > 1.0) { pause(); return; }
     if (st.paused) { resume(true); return; }
@@ -355,8 +376,8 @@ function echoGate(st, rms, chunk) {
   const floor = st.echoFloor || 0.02;
   const learning = now - st.replyStart < 0.4; // start of each reply: only learn the echo level
   // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
-  // a short noise (a cough, a cup, a door) must not stop the partner: it takes 0.28 s of clearly louder sound
-  if (!learning && rms > Math.max(0.06, floor * 4)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 7) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
+  // your voice over the partner's echo opens the mic after 0.16 s; a click or a cup is shorter than that
+  if (!learning && rms > Math.max(0.035, floor * 3)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 4) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
   st.loud = 0;
   st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
   return false;
