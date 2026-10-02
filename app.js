@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.10.0 (2026-10-02)';
+const VERSION = '2.11.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,7 +38,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'short',
+  level: 'B1', strict: 'all', explainLang: 'English', replyLen: 'short',
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true,
   talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
@@ -1148,11 +1148,8 @@ function syncProviderUI() {
   fillModelSelects();
 }
 function syncTalkMode() {
-  const b = $('talkModeBtn'); const practice = !isOpenTalk();
-  b.setAttribute('aria-pressed', practice ? 'true' : 'false');
-  b.querySelector('.tm-label').textContent = practice ? 'Practice' : 'Open talk';
-  b.title = practice ? 'Practice: mistakes are corrected. Tap for open talk.' : 'Open talk: no corrections. Tap for practice.';
-  b.hidden = mode !== 'talk';
+  document.querySelectorAll('#talkModes .tm').forEach((b) => b.setAttribute('aria-checked', b.dataset.tm === S.talkMode ? 'true' : 'false'));
+  $('talkModes').hidden = mode !== 'talk';
 }
 function syncTargetHint() {
   if (target) return;
@@ -1365,6 +1362,62 @@ function registerWorker() {
   }
 }
 
+/* ---------- how to create a key: step-by-step window ---------- */
+const GUIDES = {
+  gemini: {
+    title: 'Create a free Gemini key',
+    url: 'https://aistudio.google.com/api-keys', site: 'aistudio.google.com/api-keys', open: 'Open Google AI Studio',
+    intro: 'Free with a Google account, within Google\'s daily limits. Takes about a minute.',
+    steps: [
+      ['Open Google AI Studio with the button above and sign in with your Google account. The first time, accept the terms.'],
+      ['Tap <b>Create API key</b> at the top right.', 'guide/gemini-1.png', 'API Keys page with the Create API key button marked'],
+      ['Give the key a name, for example <b>EN Speaking</b>. Keep <b>Default Gemini Project</b>. Tap <b>Create key</b>.', 'guide/gemini-2.png', 'Create a new key window with the name box and the Create key button marked'],
+      ['In the key\'s row, tap the <b>copy</b> icon. Check that <b>Billing Tier</b> says <b>Free tier</b>. Do not tap <b>Set up billing</b>: that turns on paid use.', 'guide/gemini-3.png', 'Key list with the copy icon, Free tier and Set up billing marked'],
+      ['Come back here, paste the key into <b>Gemini key</b> and tap <b>Check</b>.'],
+    ],
+    note: 'On the free tier Google may use what you send to improve its products, and people may review it. Do not share private details while practicing.',
+    field: 'gKey',
+  },
+  openai: {
+    title: 'Create an OpenAI key',
+    url: 'https://platform.openai.com/api-keys', site: 'platform.openai.com/api-keys', open: 'Open the OpenAI platform',
+    intro: 'Paid per use. Turn by turn costs cents per hour; live calls cost more.',
+    steps: [
+      ['Open the OpenAI platform with the button above and sign in. OpenAI is prepaid: add a little credit under <b>Settings</b>, <b>Billing</b> (for example $5). You can also set a monthly budget for the project.'],
+      ['On the API keys page, tap <b>Create new secret key</b>.', 'guide/openai-1.png', 'API keys page with the Create new secret key button marked'],
+      ['Keep <b>Owned by: You</b>. Give it a name, for example <b>EN Speaking</b>. Keep <b>Default project</b> and <b>Permissions: All</b>. Tap <b>Create secret key</b>.', 'guide/openai-2.png', 'Create new secret key window with the name box and the Create secret key button marked'],
+      ['Copy the key right away. OpenAI shows it only once.'],
+      ['Come back here, paste the key into <b>OpenAI key</b> and tap <b>Check</b>.'],
+    ],
+    note: 'Keep the key to yourself: anyone who has it can spend your credit.',
+    field: 'apiKey',
+  },
+};
+function openGuide(kind) {
+  const g = GUIDES[kind];
+  $('guideTitle').textContent = g.title;
+  $('guideBody').innerHTML =
+    `<p class="guide-intro">${g.intro}</p>` +
+    `<a class="guide-link" href="${g.url}" target="_blank" rel="noopener noreferrer"><span>${g.open}</span><small>${g.site}</small></a>` +
+    '<ol class="guide-steps">' + g.steps.map(([t, img, alt]) =>
+      `<li><p>${t}</p>${img ? `<div class="shot"><img src="${img}?v=2" alt="${esc(alt)}" loading="lazy"><span class="shot-hint">Tap to enlarge</span></div>` : ''}</li>`).join('') + '</ol>' +
+    `<p class="hint">${g.note}</p>` +
+    `<button type="button" class="pill-btn strong guide-done" data-field="${g.field}">I have my key</button>`;
+  // tap a picture to see it full size (pinch zoom is off in this app)
+  $('guideBody').querySelectorAll('.guide-steps img').forEach((im) => {
+    im.addEventListener('click', () => { const z = im.closest('.shot'); z.classList.toggle('zoom'); });
+  });
+  $('guideBody').querySelector('.guide-done').onclick = (e) => { $('guide').close(); const f = $(e.target.dataset.field); if (f) f.focus(); };
+  $('guideBody').scrollTop = 0;
+  try { $('guide').showModal(); } catch { $('guide').setAttribute('open', ''); }
+}
+function setupGuide() {
+  $('createGKey').addEventListener('click', () => openGuide('gemini'));
+  $('createKey').addEventListener('click', () => openGuide('openai'));
+  $('guideClose').addEventListener('click', () => $('guide').close());
+  $('guide').addEventListener('click', (e) => { if (e.target === $('guide')) $('guide').close(); }); // tap outside closes
+}
+
 /* Android: offer "Install app" when Chrome allows it. */
 let installEvent = null;
 function setupInstall() {
@@ -1378,16 +1431,22 @@ function setupInstall() {
 }
 /* Android back button closes Settings instead of leaving the app. */
 function setupBackButton() {
-  const dlg = $('settings');
   const H = window.history; // "history" in this file is the chat history
-  const opened = () => { try { H.pushState({ settings: true }, ''); } catch { /* ignore */ } };
-  new MutationObserver(() => { if (dlg.open) opened(); }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
-  dlg.addEventListener('close', () => { if (H.state && H.state.settings) H.back(); });
-  window.addEventListener('popstate', () => { if (dlg.open) dlg.close(); });
+  ['settings', 'guide'].forEach((id) => {
+    const dlg = $(id);
+    new MutationObserver(() => { if (dlg.open) { try { H.pushState({ dlg: id }, ''); } catch { /* ignore */ } } }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
+    // closed with its own button: drop the history entry we added, without closing anything else
+    dlg.addEventListener('close', () => { if (H.state && H.state.dlg === id) { ignorePop = true; H.back(); } });
+  });
+  let ignorePop = false;
+  window.addEventListener('popstate', () => {
+    if (ignorePop) { ignorePop = false; return; }
+    if ($('guide').open) $('guide').close(); else if ($('settings').open) $('settings').close();
+  });
 }
 
 function init() {
-  lockZoom(); fitToViewport(); registerWorker(); setupInstall(); setupBackButton();
+  lockZoom(); fitToViewport(); registerWorker(); setupInstall(); setupBackButton(); setupGuide();
   $('voiceEngine').options[0].textContent = `${DEVICE_VOICE} (free)`;
   $('deviceVoiceLabel').textContent = DEVICE_VOICE;
   fillModelSelects();
@@ -1406,11 +1465,12 @@ function init() {
   });
   document.querySelectorAll('.seg').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
   $('drillContinue').addEventListener('click', () => { unlockAudio(); stopSpeaking(); continueFromDrill(); });
-  $('talkModeBtn').addEventListener('click', () => {
-    S.talkMode = isOpenTalk() ? 'practice' : 'open'; saveSettings(); syncTalkMode(); liveSettingsChanged();
+  document.querySelectorAll('#talkModes .tm').forEach((b) => b.addEventListener('click', () => {
+    if (S.talkMode === b.dataset.tm) return;
+    S.talkMode = b.dataset.tm; saveSettings(); syncTalkMode(); liveSettingsChanged();
     if (isOpenTalk() && talkDrill) continueFromDrill();
     if (!rt && !gl) setStatus(isOpenTalk() ? 'Open talk: no corrections. Talk or ask anything.' : 'Practice: your mistakes will be corrected.');
-  });
+  }));
   syncTalkMode();
   $('topic').addEventListener('change', () => liveSettingsChanged());
   $('composer').addEventListener('submit', onTyped);

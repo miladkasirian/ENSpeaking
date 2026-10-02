@@ -12,13 +12,15 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="EN Speaking">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="icon.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png?v=2" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icon-180.png?v=2">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.10.0">
+<link rel="stylesheet" href="style.css?v=2.11.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -47,9 +49,10 @@
         <span id="engineName">Turn by turn</span>
         <span class="engine-model" id="engineModel">gpt-4o-mini</span>
       </button>
-      <button class="talk-mode" id="talkModeBtn" aria-pressed="true" aria-label="Practice with corrections, or open talk">
-        <span class="tm-dot" aria-hidden="true"></span><span class="tm-label">Practice</span>
-      </button>
+      <div class="talk-modes" id="talkModes" role="radiogroup" aria-label="Conversation style">
+        <button type="button" class="tm" data-tm="practice" role="radio" aria-checked="true" title="Practice: your mistakes are corrected"><span class="tm-dot" aria-hidden="true"></span>Practice</button>
+        <button type="button" class="tm" data-tm="open" role="radio" aria-checked="false" title="Open talk: no corrections, talk or ask anything"><span class="tm-dot" aria-hidden="true"></span>Open talk</button>
+      </div>
     </div>
   </div>
 
@@ -139,6 +142,7 @@
       <div class="key-row">
         <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." aria-label="OpenAI API key">
         <button type="button" class="pill-btn" id="checkKey">Check</button>
+        <button type="button" class="pill-btn strong" id="createKey">Create</button>
       </div>
       <p class="hint" id="keyHint">Stored only in this browser. It is never part of the code on GitHub.</p>
     </section>
@@ -148,6 +152,7 @@
       <div class="key-row">
         <input id="gKey" type="password" autocomplete="off" placeholder="AQ... or AIza..." aria-label="Gemini API key">
         <button type="button" class="pill-btn" id="checkGKey">Check</button>
+        <button type="button" class="pill-btn strong" id="createGKey">Create</button>
       </div>
       <p class="hint" id="gKeyHint">From aistudio.google.com. Stored only in this browser.</p>
       <label class="check"><input id="gemFree" type="checkbox"> My Gemini key is on the free tier (no billing). Count Gemini as $0.</label>
@@ -245,7 +250,19 @@
   </form>
 </dialog>
 
-<script src="gemini.js?v=2.10.0"></script>
-<script src="app.js?v=2.10.0"></script>
+<dialog id="guide" aria-labelledby="guideTitle">
+  <div class="guide-sheet">
+    <div class="guide-head">
+      <h2 id="guideTitle">Create a key</h2>
+      <button type="button" class="close-x" id="guideClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7a1 1 0 1 0-1.4 1.4l4.9 4.9-4.9 4.9a1 1 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a1 1 0 0 0 1.4-1.4L13.4 12l4.9-4.9a1 1 0 0 0 0-1.4Z"/></svg>
+      </button>
+    </div>
+    <div id="guideBody" class="guide-body"></div>
+  </div>
+</dialog>
+
+<script src="gemini.js?v=2.11.0"></script>
+<script src="app.js?v=2.11.0"></script>
 </body>
 </html>
