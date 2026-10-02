@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.3 (2026-10-02)';
+const VERSION = '2.19.4 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -42,7 +42,7 @@ const DEFAULTS = {
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true, aiNoise: true,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
-  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', speed: 2, rate: 0.85, volume: 100,
+  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Charon', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
@@ -596,7 +596,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} ${toneOf().rule}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} ${toneOf().rule} LANGUAGES: ${languageRule()}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -667,23 +667,25 @@ function promptVars(extra = {}) {
   }
   return v;
 }
-/* Open talk: the Conversation tab without corrections, in any language. */
+/* Open talk: the Conversation tab without corrections. Languages: setting "langs", English only or English and Persian. */
 const isOpenTalk = () => S.talkMode === 'open';
-const anyLanguage = () => isOpenTalk() && mode === 'talk';
-const LANG_ENGLISH = 'Speak only English.';
-const LANG_FREE = 'The learner may speak Persian (Farsi), English, a mix of both, or any other language. Always understand them. Answer in the language they use or ask for: if they speak Persian, you may answer in Persian. When they ask how to say something in English, give natural American English and explain it in their language if that helps.';
+const anyLanguage = () => S.langs === 'en-fa' && mode === 'talk'; // Persian is understood too
+const LANG_ENGLISH = 'Speak only English. If the learner uses another language, answer in English and help them say it in English.';
+const LANG_FREE = 'Only two languages are allowed: English and Persian (Farsi). The learner may speak English, Persian or a mix of both; understand both and answer in the language they use or ask for. When they ask how to say something in English, give natural American English and explain it in Persian if that helps. Never use any other language; if the learner uses another language, answer in English.';
+const LANG_PRACTICE_FA = 'The learner is practicing English, but may use Persian (Farsi) to ask something or when stuck. Understand Persian, answer in English (add a very short Persian explanation only if they ask), and help them say it in English. Only English and Persian are allowed, never any other language.';
+function languageRule() { return !anyLanguage() ? LANG_ENGLISH : isOpenTalk() ? LANG_FREE : LANG_PRACTICE_FA; }
 function transcriptionPrompt() {
   return anyLanguage()
     ? 'Transcribe exactly what the speaker says, word for word. The speaker may use Persian (Farsi), English, or both in one sentence. Write Persian in Persian script and English in English. Do not translate.'
     : prompt('transcription');
 }
 function openTalkVars() {
-  if (!isOpenTalk()) return { languageRule: LANG_ENGLISH };
+  if (!isOpenTalk()) return { languageRule: languageRule() };
   const note = fillPrompt(rawPrompt('openTalk'), {});
   return {
     corrections: note + ' Always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".',
     spokenCorrections: note,
-    languageRule: anyLanguage() ? LANG_FREE : LANG_ENGLISH,
+    languageRule: languageRule(),
   };
 }
 function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
@@ -1572,7 +1574,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'accent', 'tone', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'accent', 'tone', 'langs', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1581,7 +1583,7 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
-      if (['level', 'explainLang', 'accent', 'tone'].includes(id)) liveSettingsChanged();
+      if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
   ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData', 'aiNoise'].forEach((id) => {

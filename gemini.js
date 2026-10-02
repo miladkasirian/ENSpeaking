@@ -178,6 +178,27 @@ async function rnnoiseNode(ctx) {
     });
   } catch { return null; }
 }
+/* Echo cancellation needs to know what the speaker is playing. The browser's echo canceller only "sees"
+   sound that comes from a WebRTC call, so the partner's voice is passed through a local WebRTC connection
+   (inside the phone, nothing goes out) before it is played. If anything fails, it plays directly as before. */
+async function echoLoopback(st) {
+  if (!window.RTCPeerConnection || !st.outDest || !st.outEl) return;
+  try {
+    const a = new RTCPeerConnection(); const b = new RTCPeerConnection();
+    a.onicecandidate = (e) => { if (e.candidate) b.addIceCandidate(e.candidate).catch(() => {}); };
+    b.onicecandidate = (e) => { if (e.candidate) a.addIceCandidate(e.candidate).catch(() => {}); };
+    b.ontrack = (e) => {
+      const el = st.outEl; if (!el || gl !== st) return;
+      const direct = el.srcObject;
+      el.srcObject = e.streams[0] || new MediaStream([e.track]);
+      el.play().then(() => { st.loopback = true; }).catch(() => { el.srcObject = direct; el.play().catch(() => {}); });
+    };
+    st.outDest.stream.getAudioTracks().forEach((t) => a.addTrack(t, st.outDest.stream));
+    await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription);
+    await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
+    st.stops.push(() => { try { a.close(); b.close(); } catch { /* ignore */ } });
+  } catch { /* plays directly */ }
+}
 function repeatInstructions() {
   return [
     prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
@@ -230,10 +251,10 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     const src = ctx.createMediaStreamSource(st.stream);
     const tap = new AudioWorkletNode(ctx, 'pcm-tap');
     const mute = ctx.createGain(); mute.gain.value = 0;
-    // Noise filter before anything is sent or transcribed: speech lives between about 100 Hz and 4 kHz,
-    // so low rumble/hum (fans, traffic, AC) and high hiss are cut. The browser's own noise suppression is also on.
+    // Filter before anything is sent: low rumble/hum (fans, traffic, AC) is cut; up to 7.5 kHz is kept,
+    // because consonants like s, f and th live up there and the speech recognition needs them. The browser's own noise suppression is also on.
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110; hp.Q.value = 0.7;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4000; lp.Q.value = 0.7;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7500; lp.Q.value = 0.7;
     const ai = await rnnoiseNode(ctx); // AI noise removal: keeps the human voice, removes background noise
     if (gl !== st) { releaseMic(true); return; }
     if (ai) { src.connect(ai); ai.connect(hp); } else src.connect(hp);
@@ -243,7 +264,7 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
     st.out = ctx.createGain(); st.out.gain.value = volGain();
-    if (st.outDest && st.outEl && !st.outEl.paused) st.out.connect(st.outDest); else st.out.connect(ctx.destination);
+    if (st.outDest && st.outEl && !st.outEl.paused) { st.out.connect(st.outDest); echoLoopback(st); } else st.out.connect(ctx.destination);
     const an = ctx.createAnalyser(); an.fftSize = 512; st.out.connect(an);
     const buf = new Float32Array(an.fftSize); let alive = true;
     const tick = () => { if (!alive) return; an.getFloatTimeDomainData(buf); let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i]; levels.ai = Math.min(1, Math.sqrt(s / buf.length) * 9); requestAnimationFrame(tick); };
@@ -369,17 +390,17 @@ const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
   const now = st.ctx.currentTime;
   // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
-  const talking = st.playT && now < st.playT + 0.5;
+  const talking = st.playT && now < st.playT + 0.4;
   if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.loud = 0; return true; }
   if (!st.replyStart) st.replyStart = now;
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
-  const floor = st.echoFloor || 0.02;
-  const learning = now - st.replyStart < 0.4; // start of each reply: only learn the echo level
-  // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
-  // your voice over the partner's echo opens the mic after 0.16 s; a click or a cup is shorter than that
-  if (!learning && rms > Math.max(0.035, floor * 3)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 4) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
+  const floor = st.echoFloor || 0.015;
+  const learning = now - st.replyStart < 0.15; // very start of a reply: only learn the echo level
+  // Your voice is louder at the mic than the echo of the speaker: twice the echo level for 0.08 s opens the
+  // mic, and the 0.32 s before that is sent too, so nothing of what you say is lost.
+  if (!learning && rms > Math.max(0.025, floor * 2)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 2) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
   st.loud = 0;
-  st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
+  st.echoFloor = floor * 0.9 + rms * 0.1; // average echo level during this reply
   return false;
 }
 function playPcm24(st, b64) {
