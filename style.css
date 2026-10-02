@@ -129,6 +129,7 @@ button { cursor: pointer; }
 .engine-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .engine-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--you); flex: none; }
 .engine-chip[data-engine="realtime"] .engine-dot { background: var(--ai); box-shadow: 0 0 0 3px var(--ai-soft); }
+.engine-chip[data-engine="glive"] .engine-dot { background: conic-gradient(var(--you), var(--ai), var(--fix), var(--you)); box-shadow: 0 0 0 3px var(--ai-soft); }
 
 /* ---------- stage ---------- */
 .stage { min-height: 0; display: flex; flex-direction: column; }
@@ -262,7 +263,7 @@ dialog::backdrop { background: rgba(10, 16, 34, .5); backdrop-filter: blur(3px);
 .grid3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; }
 .check input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--ai); flex: none; }
-.choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .choice-card {
   display: flex; gap: 8px; align-items: flex-start; padding: 10px; border-radius: var(--r-sm);
   border: 1.5px solid var(--line); background: var(--bg);

@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.0.1 (2026-10-02)';
+const VERSION = '2.1.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -43,6 +43,7 @@ const DEFAULTS = {
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
+  gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
   prices: {},            // user overrides, keyed by model id
 };
 
@@ -55,9 +56,21 @@ const store = {
 const S = Object.assign({}, DEFAULTS, store.get('ens.settings', {}));
 S.prices = Object.assign({}, S.prices);
 let apiKey = store.get('ens.key', '');
+let gKey = store.get('ens.gkey', '');
+let availableGemini = store.get('ens.gmodels', null);
 let availableModels = store.get('ens.models', null); // list of ids from /v1/models, if fetched
-const totals = Object.assign({ stt: 0, chat: 0, tts: 0, rt: 0 }, store.get('ens.totals', {}));
-const session = { stt: 0, chat: 0, tts: 0, rt: 0, sttSec: 0, chatTok: 0, ttsSec: 0, rtSec: 0 };
+const totals = Object.assign({ stt: 0, chat: 0, tts: 0, rt: 0, gem: 0 }, store.get('ens.totals', {}));
+const session = { stt: 0, chat: 0, tts: 0, rt: 0, gem: 0, sttSec: 0, chatTok: 0, ttsSec: 0, rtSec: 0, gemSec: 0, gemTok: 0 };
+const isCallEngine = () => S.engine === 'realtime' || S.engine === 'glive';
+function missingKey(models) {
+  for (const m of models) { if (isGem(m) ? !gKey : !apiKey) return isGem(m) ? 'Gemini' : 'OpenAI'; }
+  return null;
+}
+function needKeys(models) {
+  const k = missingKey(models); if (!k) return true;
+  setStatus(`Add your ${k} key in Settings first.`, true); openSettings(); return false;
+}
+function endAnyCall(msg, isErr) { if (rt) endCall(msg, isErr); if (gl) endGemini(msg, isErr); }
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html !== undefined) n.innerHTML = html; return n; };
@@ -100,10 +113,10 @@ function setPhase(p) {
   phase = p;
   const mic = $('mic');
   const glyph = { idle: 'mic', rec: 'stop', think: 'none', speak: 'mic', connecting: 'none', call: 'call' }[p];
-  mic.dataset.glyph = (p === 'idle' && S.engine === 'realtime' && mode === 'talk') ? 'call' : glyph;
+  mic.dataset.glyph = (p === 'idle' && isCallEngine() && mode === 'talk') ? 'call' : glyph;
   mic.dataset.phase = p;
   mic.setAttribute('aria-label', {
-    idle: S.engine === 'realtime' && mode === 'talk' ? 'Start a realtime call' : 'Start speaking',
+    idle: isCallEngine() && mode === 'talk' ? 'Start a voice call' : 'Start speaking',
     rec: 'Stop and send', think: 'Working', speak: 'Interrupt and speak', connecting: 'Connecting', call: 'End the call',
   }[p]);
   $('typed').disabled = p === 'connecting';
@@ -116,7 +129,8 @@ function addCost(kind, usd, extra = {}) {
   store.set('ens.totals', totals);
   renderSpend(true);
 }
-function sessionTotal() { return session.stt + session.chat + session.tts + session.rt; }
+function sessionTotal() { return session.stt + session.chat + session.tts + session.rt + session.gem; }
+const allTotal = () => totals.stt + totals.chat + totals.tts + totals.rt + totals.gem;
 function renderSpend(ticked = false) {
   $('cost').textContent = money(sessionTotal());
   if (ticked) { const b = $('spendBtn'); b.classList.remove('tick'); void b.offsetWidth; b.classList.add('tick'); }
@@ -124,26 +138,29 @@ function renderSpend(ticked = false) {
     ['Speech to text', session.stt, session.sttSec ? `${Math.round(session.sttSec)} s` : ''],
     ['Chat model', session.chat, session.chatTok ? `${session.chatTok.toLocaleString()} tokens` : ''],
     ['OpenAI voice', session.tts, session.ttsSec ? `${Math.round(session.ttsSec)} s` : ''],
-    ['Realtime', session.rt, session.rtSec ? fmtDur(session.rtSec) : ''],
+    ['OpenAI Realtime', session.rt, session.rtSec ? fmtDur(session.rtSec) : ''],
+    ['Gemini' + (S.gemFree ? ', free tier' : ''), session.gem, session.gemSec ? fmtDur(session.gemSec) + ' of calls' : (session.gemTok ? `${session.gemTok.toLocaleString()} tokens` : '')],
   ];
   $('ledgerRows').innerHTML = rows.map(([n, v, d]) => `<div><span>${n}${d ? ` <small>(${d})</small>` : ''}</span><b>${money(v)}</b></div>`).join('') +
     `<div class="sum"><span>This session</span><b>${money(sessionTotal())}</b></div>` +
-    `<div><span>All time on this device</span><b>${money(totals.stt + totals.chat + totals.tts + totals.rt)}</b></div>`;
+    `<div><span>All time on this device</span><b>${money(allTotal())}</b></div>`;
 }
 function fmtDur(s) { const m = Math.floor(s / 60); return m ? `${m} min ${Math.round(s % 60)} s` : `${Math.round(s)} s`; }
 function renderTotals() {
   const r = (n, a, b) => `<tr><td>${n}</td><td>${money(a)}</td><td>${money(b)}</td></tr>`;
   $('totals').innerHTML = `<table><tr><td></td><td><small>Session</small></td><td><small>All time</small></td></tr>` +
     r('Speech to text', session.stt, totals.stt) + r('Chat model', session.chat, totals.chat) +
-    r('OpenAI voice', session.tts, totals.tts) + r('Realtime', session.rt, totals.rt) +
-    `<tr class="sum"><td>Total</td><td>${money(sessionTotal())}</td><td>${money(totals.stt + totals.chat + totals.tts + totals.rt)}</td></tr></table>` +
-    '<p class="hint">Estimated from the prices below. Your exact bill is on platform.openai.com under Usage.</p>';
+    r('OpenAI voice', session.tts, totals.tts) + r('OpenAI Realtime', session.rt, totals.rt) + r('Gemini', session.gem, totals.gem) +
+    `<tr class="sum"><td>Total</td><td>${money(sessionTotal())}</td><td>${money(allTotal())}</td></tr></table>` +
+    '<p class="hint">Estimated from the prices below. Exact bills: platform.openai.com (Usage) and aistudio.google.com (Usage).' +
+    (S.gemFree ? ' Gemini counts as $0 because you marked your Gemini key as free tier.' : '') + '</p>';
 }
 function renderEngineChip() {
-  const rt = S.engine === 'realtime';
-  $('engineChip').dataset.engine = rt ? 'realtime' : 'turn';
-  $('engineName').textContent = rt ? 'Realtime' : 'Turn by turn';
-  $('engineModel').textContent = rt ? `${S.rtModel}, ${S.rtVoice}` : `${S.chatModel}, ${S.voiceEngine === 'device' ? 'iPhone voice' : S.openaiVoice}`;
+  const e = S.engine;
+  $('engineChip').dataset.engine = e;
+  $('engineName').textContent = e === 'realtime' ? 'OpenAI Realtime' : e === 'glive' ? 'Gemini Live' : 'Turn by turn';
+  $('engineModel').textContent = e === 'realtime' ? `${S.rtModel}, ${S.rtVoice}` : e === 'glive' ? `${S.gLiveModel}, ${S.gVoice}` :
+    `${S.chatModel}, ${S.voiceEngine === 'device' ? 'iPhone voice' : S.openaiVoice}`;
 }
 function scrollDown(log) { requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; }); if (log.id === 'log') persistChat(); }
 let persistTimer = null;
@@ -196,6 +213,7 @@ async function fetchModels() {
 }
 
 async function transcribe(blob, ext, seconds) {
+  if (isGem(S.sttModel)) { session.sttSec += seconds; return geminiTranscribe(blob); }
   const fd = new FormData();
   fd.append('file', blob, 'speech.' + ext);
   fd.append('model', S.sttModel);
@@ -213,6 +231,7 @@ async function transcribe(blob, ext, seconds) {
 const reasoningParam = {}; // per model: which reasoning setting the API accepted
 async function chatJSON(messages, maxTokens = 600) {
   const m = S.chatModel;
+  if (isGem(m)) return geminiJSON(messages, maxTokens);
   const isReasoning = /^(gpt-5|gpt-6|o\d)/.test(m);
   const tries = isReasoning ? (reasoningParam[m] !== undefined ? [reasoningParam[m]] : ['minimal', 'none', 'low', null]) : [null];
   let lastErr;
@@ -350,7 +369,7 @@ function meter(stream, onLevel) {
 }
 
 async function startRec() {
-  if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
+  if (!needKeys([S.sttModel, S.chatModel])) return;
   const fmt = pickMime();
   if (!fmt || !navigator.mediaDevices?.getUserMedia) { setStatus('This browser cannot record audio.', true); return; }
   let stream;
@@ -504,7 +523,7 @@ function align(t, s) {
   return { tHit, sHit, score: n ? dp[0][0] / n : 0 };
 }
 async function nextSentence() {
-  if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
+  if (!needKeys([S.chatModel])) return;
   unlockAudio(); stopSpeaking();
   setPhase('think'); setStatus('Choosing a sentence...');
   const lenRule = { A2: '5 to 9 words', B1: '7 to 12 words', B2: '9 to 15 words', C1: '12 to 20 words' }[S.level];
@@ -788,6 +807,16 @@ function fillSelect(id, ids, current, labelFn) {
   const list = Array.from(new Set([current, ...ids]));
   list.forEach((m) => { const o = el('option'); o.value = m; o.textContent = labelFn ? labelFn(m) : m; if (m === current) o.selected = true; sel.appendChild(o); });
 }
+function fillGrouped(id, groups, current) {
+  const sel = $(id); sel.innerHTML = '';
+  let found = false;
+  groups.forEach(([label, ids, labelFn]) => {
+    const g = el('optgroup'); g.label = label;
+    ids.forEach((m) => { const o = el('option'); o.value = m; o.textContent = labelFn(m); if (m === current) { o.selected = true; found = true; } g.appendChild(o); });
+    if (ids.length) sel.appendChild(g);
+  });
+  if (!found && current) { const o = el('option'); o.value = current; o.textContent = current; o.selected = true; sel.prepend(o); }
+}
 function modelLists() {
   const avail = availableModels || [];
   const okChat = (m) => /^gpt-(4o-mini|4\.1-(mini|nano)|5(\.\d+)?-(mini|nano)|6[\w.-]*)$/.test(m) && !/audio|realtime|tts|transcribe|search|image|codex|pro/.test(m);
@@ -805,16 +834,22 @@ function chatLabel(m) {
 function rtLabel(m) { const p = price('rt', m); return `${m}  (audio $${p.ain} / $${p.aout})`; }
 function fillModelSelects() {
   const L = modelLists();
-  fillSelect('chatModel', L.chat, S.chatModel, chatLabel);
-  fillSelect('sttModel', L.stt, S.sttModel, (m) => `${m}  ($${price('stt', m).min}/min)`);
+  const G = geminiLists();
+  fillGrouped('chatModel', [['OpenAI', L.chat, chatLabel], ['Gemini', G.text, gemLabel]], S.chatModel);
+  fillGrouped('sttModel', [['OpenAI', L.stt, (m) => `${m}  ($${price('stt', m).min}/min)`], ['Gemini', G.text, gemLabel]], S.sttModel);
+  fillSelect('gLiveModel', G.live, S.gLiveModel, (m) => `${m}  (${S.gemFree ? 'free tier' : '$0.005 / $0.018 per min'})`);
+  fillSelect('gVoice', GEMINI_VOICES, S.gVoice);
   fillSelect('rtModel', L.rt, S.rtModel, rtLabel);
   fillSelect('openaiVoice', TTS_VOICES, S.openaiVoice);
   fillSelect('rtVoice', RT_VOICES, S.rtVoice);
 }
 function renderPrices() {
+  const chatRows = isGem(S.chatModel) ? [[S.chatModel, 'in', 'Gemini chat input, per 1M (paid tier)', 'gem'], [S.chatModel, 'out', 'Gemini chat output, per 1M (paid tier)', 'gem']]
+    : [[S.chatModel, 'in', 'Chat input, per 1M tokens', 'chat'], [S.chatModel, 'out', 'Chat output, per 1M tokens', 'chat']];
+  const sttRows = isGem(S.sttModel) ? [[S.sttModel, 'ain', 'Gemini audio input, per 1M (paid tier)', 'gem']] : [[S.sttModel, 'min', 'Speech to text, per minute', 'stt']];
   const rows = [
-    [S.chatModel, 'in', 'Chat input, per 1M tokens', 'chat'], [S.chatModel, 'out', 'Chat output, per 1M tokens', 'chat'],
-    [S.sttModel, 'min', 'Speech to text, per minute', 'stt'], [TTS_MODEL, 'min', 'OpenAI voice, per minute', 'tts'],
+    ...chatRows, ...sttRows, [TTS_MODEL, 'min', 'OpenAI voice, per minute', 'tts'],
+    [S.gLiveModel, 'inMin', 'Gemini Live audio in, per minute (paid tier)', 'glive'], [S.gLiveModel, 'outMin', 'Gemini Live audio out, per minute (paid tier)', 'glive'],
     [S.rtModel, 'ain', 'Realtime audio in, per 1M', 'rt'], [S.rtModel, 'acached', 'Realtime cached audio in, per 1M', 'rt'],
     [S.rtModel, 'aout', 'Realtime audio out, per 1M', 'rt'], [S.rtModel, 'tin', 'Realtime text in, per 1M', 'rt'],
     [S.rtModel, 'tout', 'Realtime text out, per 1M', 'rt'],
@@ -823,7 +858,8 @@ function renderPrices() {
   rows.forEach(([model, key, label, kind]) => {
     const f = el('label', 'field');
     f.innerHTML = `<span>${label}<br><small>${esc(model)}</small></span>`;
-    const inp = el('input'); inp.type = 'number'; inp.step = 'any'; inp.min = '0'; inp.value = price(kind, model)[key];
+    const cur = kind === 'gem' ? gPrice(model) : kind === 'glive' ? gLivePrice() : price(kind, model);
+    const inp = el('input'); inp.type = 'number'; inp.step = 'any'; inp.min = '0'; inp.value = cur[key];
     inp.addEventListener('change', () => {
       S.prices[model] = Object.assign({}, S.prices[model], { [key]: Number(inp.value) }); saveSettings(); fillModelSelects();
     });
@@ -850,11 +886,30 @@ async function checkKey() {
   } catch (e) { hint.className = 'hint bad'; hint.textContent = e.message; }
 }
 
+async function checkGeminiKey() {
+  const hint = $('gKeyHint');
+  if (!gKey) { hint.className = 'hint bad'; hint.textContent = 'Paste a Gemini key first.'; return; }
+  hint.className = 'hint'; hint.textContent = 'Checking...';
+  try {
+    const list = await fetchGeminiModels();
+    fillModelSelects();
+    const live = list.filter((m) => /live|native-audio/.test(m.id) && !/translate|transcribe/.test(m.id)).length;
+    hint.className = 'hint ok';
+    hint.textContent = `The Gemini key works. ${list.length} models, ${live} of them for Live calls.`;
+  } catch (e) { hint.className = 'hint bad'; hint.textContent = e.message; }
+}
+
 function bindSettings() {
+  $('gKey').value = gKey;
+  $('gKey').addEventListener('change', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); if (gKey) checkGeminiKey(); });
+  $('checkGKey').addEventListener('click', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); checkGeminiKey(); });
+  $('gemFree').checked = !!S.gemFree;
+  $('gemFree').addEventListener('change', () => { S.gemFree = $('gemFree').checked; saveSettings(); fillModelSelects(); renderPrices(); renderTotals(); renderSpend(); });
+  $('forgetGKey').addEventListener('click', () => { gKey = ''; store.del('ens.gkey'); $('gKey').value = ''; $('gKeyHint').className = 'hint'; $('gKeyHint').textContent = 'Gemini key removed from this device.'; });
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'strict', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice'].forEach((id) => {
+  ['level', 'strict', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => { S[id] = n.value; saveSettings(); syncVoiceUI(); renderPrices(); });
@@ -864,7 +919,7 @@ function bindSettings() {
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); });
   });
   document.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', () => {
-    if (r.checked) { if (rt) endCall(); S.engine = r.value; saveSettings(); syncEngineUI(); }
+    if (r.checked) { endAnyCall(); S.engine = r.value; saveSettings(); syncEngineUI(); }
   }));
   $('deviceVoice').addEventListener('change', () => { S.deviceVoice = $('deviceVoice').value; saveSettings(); });
   $('rate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
@@ -880,8 +935,9 @@ function bindSettings() {
 /* ---------- wiring ---------- */
 function onOrb() {
   unlockAudio(); handsFreeCancelled = false;
-  if (mode === 'talk' && S.engine === 'realtime') {
-    if (phase === 'call' || phase === 'connecting') endCall(); else { stopSpeaking(); startCall(); }
+  if (mode === 'talk' && isCallEngine()) {
+    if (phase === 'call' || phase === 'connecting') endAnyCall();
+    else { stopSpeaking(); if (S.engine === 'glive') startGeminiCall(); else startCall(); }
     return;
   }
   if (phase === 'rec') { stopRec(); return; }
@@ -891,7 +947,7 @@ function onOrb() {
 }
 function switchMode(m) {
   if (m === mode) return;
-  if (rt) endCall();
+  endAnyCall();
   if (phase === 'rec' && rec) { rec.heard = false; stopRec(); }
   stopSpeaking(); mode = m; setPhase('idle');
   document.querySelectorAll('.seg').forEach((b) => { const on = b.dataset.mode === m; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
@@ -899,14 +955,15 @@ function switchMode(m) {
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat';
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
-  if (m === 'repeat' && S.engine === 'realtime') setStatus('Repeat practice uses the turn-by-turn engine. Tap Next sentence to begin.');
+  if (m === 'repeat' && isCallEngine()) setStatus('Repeat practice uses the turn-by-turn engine. Tap Next sentence to begin.');
 }
 async function onTyped(ev) {
   ev.preventDefault();
   const text = $('typed').value.trim(); if (!text) return;
-  if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
   unlockAudio();
   if (rt) { if (sendTypedRealtime(text)) $('typed').value = ''; return; }
+  if (gl) { if (sendTypedGemini(text)) $('typed').value = ''; return; }
+  if (!needKeys([S.chatModel])) return;
   if (phase === 'rec' || phase === 'think') return;
   stopSpeaking(); $('typed').value = '';
   try { await handleTalk(text, true); } catch (e) { setPhase('idle'); setStatus(e.message, true); }
@@ -938,7 +995,7 @@ function init() {
       return;
     }
     clearTimeout(delArmed); delArmed = null; btn.textContent = 'Delete chat'; btn.classList.remove('danger');
-    if (rt) endCall();
+    endAnyCall();
     history = []; $('log').innerHTML = ''; store.del('ens.chat'); emptyState(); stopSpeaking(); setPhase('idle');
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
@@ -952,10 +1009,11 @@ function init() {
   $('hearSlow').addEventListener('click', () => { if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence, Math.max(0.5, Number(S.rate) * 0.7)); } });
   $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { handsFreeCancelled = true; if (phase === 'rec') stopRec(); if (rt) endCall('Call ended because the app went to the background.'); stopSpeaking(); }
+    if (document.hidden) { handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }
   });
   setPhase('idle');
-  setStatus(apiKey ? 'Tap the circle and speak, or type below.' : 'Start by adding your OpenAI key in Settings.');
+  setStatus(apiKey || gKey ? 'Tap the circle and speak, or type below.' : 'Start by adding an OpenAI or Gemini key in Settings.');
   if (apiKey && !availableModels) fetchModels().then(fillModelSelects).catch(() => {});
+  if (gKey && !availableGemini) fetchGeminiModels().then(fillModelSelects).catch(() => {});
 }
 init();

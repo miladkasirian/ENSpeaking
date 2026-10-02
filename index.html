@@ -123,13 +123,26 @@
       <p class="hint" id="keyHint">Stored only in this browser. It is never part of the code on GitHub.</p>
     </section>
 
+    <section class="group">
+      <h3>Gemini key</h3>
+      <div class="key-row">
+        <input id="gKey" type="password" autocomplete="off" placeholder="AIza..." aria-label="Gemini API key">
+        <button type="button" class="pill-btn" id="checkGKey">Check</button>
+      </div>
+      <p class="hint" id="gKeyHint">From aistudio.google.com. Stored only in this browser.</p>
+      <label class="check"><input id="gemFree" type="checkbox"> My Gemini key is on the free tier (no billing). Count Gemini as $0.</label>
+      <p class="hint">On the free tier Google may use what you send to improve its products, and people may review it.</p>
+    </section>
+
     <section class="group" id="engineGroup">
       <h3>Engine</h3>
       <div class="choice">
         <label class="choice-card"><input type="radio" name="engine" value="turn">
-          <span><b>Turn by turn</b><small>Speech to text, then a chat model, then a voice. Cheapest. About 1 to 3 seconds per reply.</small></span></label>
+          <span><b>Turn by turn</b><small>Speech to text, then a chat model, then a voice. Works with OpenAI or Gemini models. About 1 to 3 seconds per reply.</small></span></label>
         <label class="choice-card"><input type="radio" name="engine" value="realtime">
-          <span><b>Realtime</b><small>A live voice call. You can interrupt it. Costs several times more.</small></span></label>
+          <span><b>OpenAI Realtime</b><small>A live voice call. You can interrupt it. Costs several times more.</small></span></label>
+        <label class="choice-card"><input type="radio" name="engine" value="glive">
+          <span><b>Gemini Live</b><small>A live voice call with Google's model. Free on a free-tier key, within Google's limits.</small></span></label>
       </div>
     </section>
 
@@ -156,6 +169,15 @@
         <label class="field"><span>Voice</span><select id="rtVoice"></select></label>
       </div>
       <label class="check"><input id="rtWritten" type="checkbox"> Also show written corrections (uses the chat model, very cheap)</label>
+    </section>
+
+    <section class="group" id="gliveGroup">
+      <h3>Gemini Live</h3>
+      <div class="grid2">
+        <label class="field"><span>Live model</span><select id="gLiveModel"></select></label>
+        <label class="field"><span>Voice</span><select id="gVoice"></select></label>
+      </div>
+      <p class="hint">Written corrections during the call use the chat model chosen under Turn by turn.</p>
     </section>
 
     <section class="group">
@@ -188,12 +210,14 @@
     </details>
 
     <section class="group danger-zone">
-      <button type="button" class="pill-btn danger" id="forgetKey">Remove the key from this device</button>
+      <button type="button" class="pill-btn danger" id="forgetKey">Remove the OpenAI key from this device</button>
+      <button type="button" class="pill-btn danger" id="forgetGKey">Remove the Gemini key from this device</button>
       <p class="hint ver">Version <span id="ver"></span></p>
     </section>
   </form>
 </dialog>
 
+<script src="gemini.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
