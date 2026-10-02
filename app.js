@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.1 (2026-10-02)';
+const VERSION = '2.19.2 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', speed: 2, rate: 0.85, volume: 100,
@@ -75,6 +75,7 @@ if (!S.defaults2) {
   store.set('ens.settings', S);
 }
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
+if (!S.defaults5) { S.saveData = false; S.defaults5 = true; store.set('ens.settings', S); } // send the voice instantly by default, applied once
 if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
@@ -457,7 +458,9 @@ async function getMic() {
     micStream.getAudioTracks().forEach((t) => { t.enabled = true; });
     return micStream;
   }
-  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  // voiceIsolation: ask for the system's voice isolation (keeps the human voice, removes background noise)
+  // where the browser supports it; browsers that do not know it simply ignore it
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true } });
   return micStream;
 }
 /* Live calls always close the mic when they end, so the iPhone's orange mic dot goes off.

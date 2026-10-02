@@ -249,8 +249,7 @@ function geminiSetup(st) {
     setup.sessionResumption = st.handle ? { handle: st.handle } : {};
     // long talks: let Gemini drop the oldest audio instead of ending the session when its memory fills up
     setup.contextWindowCompression = { slidingWindow: {} };
-    // start of speech a little less eager (background noise); end of speech left at Gemini's fast default
-    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW' } };
+    // speech detection at Gemini's default (fast) sensitivity: noise is handled by the app's filter and echo gate
   }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
@@ -372,7 +371,7 @@ function playPcm24(st, b64) {
   // (slow internet), the buffer grows, so later replies play smoothly instead of in bits.
   const now = st.ctx.currentTime; st.jitter = st.jitter || 0.15;
   if (st.playT < now) {
-    if (st.inReply) { st.jitter = Math.min(1.0, st.jitter + 0.15); st.underran = true; }
+    if (st.inReply) { st.jitter = Math.min(0.5, st.jitter + 0.1); st.underran = true; }
     st.playT = now + st.jitter;
   }
   st.inReply = true;
