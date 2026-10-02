@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.3 (2026-10-02)';
+const VERSION = '2.18.4 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -1246,9 +1246,11 @@ function drawOrb(ts) {
     const live = phase === 'rec' ? levels.mic : phase === 'call' ? Math.max(levels.mic, levels.ai) :
       phase === 'speak' ? 0.25 + 0.2 * Math.abs(Math.sin(orb.t * 5.3)) * Math.abs(Math.sin(orb.t * 2.1)) : 0;
     orb.lvl += (live - orb.lvl) * 0.25;
-    const lead = phase === 'rec' || (phase === 'call' && levels.mic > levels.ai) ? you : phase === 'think' || phase === 'connecting' ? fix : ai;
+    // mic on (live call, connecting, recording): fast motion with a red center, so on and off look clearly different
+    const micOn = phase === 'call' || phase === 'connecting' || phase === 'rec';
+    const lead = micOn ? '#ef233c' : phase === 'think' ? fix : ai;
     const c = w / 2, base = w * 0.345 * (1 + orb.lvl * 0.22);
-    const speed = orb.reduced ? 0 : (phase === 'think' || phase === 'connecting' ? 2.4 : 0.7);
+    const speed = orb.reduced ? 0 : (micOn || phase === 'think' ? 2.4 : 0.7);
     ctx.clearRect(0, 0, w, w);
     // soft halo
     const halo = ctx.createRadialGradient(c, c, base * 0.6, c, c, w / 2);
@@ -1256,7 +1258,7 @@ function drawOrb(ts) {
     halo.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(c, c, w / 2, 0, Math.PI * 2); ctx.fill();
     // three drifting layers
-    const layers = [[ai, 0, 1.0], [you, 2.1, 0.9], [lead, 4.2, 0.78]];
+    const layers = micOn ? [['#c1121f', 0, 1.0], ['#ff4d6d', 2.1, 0.9], ['#ef233c', 4.2, 0.78]] : [[ai, 0, 1.0], [you, 2.1, 0.9], [lead, 4.2, 0.78]];
     layers.forEach(([col, ph, sc], li) => {
       ctx.beginPath();
       for (let i = 0; i <= 64; i++) {
@@ -1394,7 +1396,9 @@ function applyVolume() {
   if (gl && gl.out) { try { gl.out.gain.value = g; } catch { /* ignore */ } }
   [audioEl, rt && rt.audio, gl && gl.outEl].forEach((a) => { if (a) { try { a.volume = Math.min(1, g); a.muted = g === 0; } catch { /* ignore */ } } });
   if (gl && gl.outEl) { gl.outEl.muted = false; gl.outEl.volume = 1; } // Gemini is already turned down by its gain
-  const muted = g === 0; $('volX').hidden = !muted; $('volWaves').hidden = muted;
+  const muted = g === 0; // SVG parts ignore the hidden property on iPhone, so display is set directly
+  $('volX').style.display = muted ? '' : 'none'; $('volWaves').style.display = muted ? 'none' : '';
+  $('volX').removeAttribute('hidden');
   $('volVal').textContent = Math.round(S.volume) + '%';
 }
 
