@@ -496,3 +496,8 @@ dialog#guide {
 /* your words while the better transcript is on its way */
 .msg.me.refining .txt { opacity: .7; }
 .msg.me.refining .who::after { content: " · checking..."; color: var(--muted); }
+
+/* the two transcripts of your words, when they differ */
+.msg.me .txt mark, .heard-alt mark { background: color-mix(in srgb, var(--fix) 28%, transparent); color: inherit; border-radius: 4px; padding: 0 2px; }
+.heard-alt { margin-top: 6px; padding-top: 6px; border-top: 1px dashed color-mix(in srgb, var(--you) 35%, transparent); font-size: 14px; color: var(--muted); }
+.heard-alt span { font-weight: 700; color: var(--you); }
