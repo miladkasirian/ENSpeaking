@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.16.4 (2026-10-02)';
+const VERSION = '2.17.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -582,6 +582,7 @@ function rawPrompt(key) {
 function topicLine(kind) {
   const t = $('topic').value.trim();
   if (kind === 'drill') return t ? `Use sentences about this topic: ${t}.` : '';
+  if (docActive()) return "The conversation is about the learner's document, shown at the end of these instructions.";
   return t ? `Conversation topic: ${t}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.';
 }
 function openingLine(kind) {
@@ -590,6 +591,7 @@ function openingLine(kind) {
     return t ? `The learner wants to practice this situation: ${t}. Make every sentence fit it. Start right away with the first sentence.`
       : 'At the very start, greet the learner briefly and ask in one short sentence which real-life situation they want to practice, for example ordering at a cafe, a job interview, or a doctor visit. Wait for the answer, then make every sentence fit the situation they describe. If they describe their own situation in detail, use their details.';
   }
+  if (docActive()) return docOpening();
   return t ? `The learner chose this topic or situation: ${t}. Start the conversation about it right away with a friendly question.`
     : 'At the very start, greet the learner briefly and ask in one short sentence what they want to talk about or which real-life situation they want to practice, for example a job interview, ordering food, or small talk with a neighbor. Then build the whole conversation around what they describe, using their own details.';
 }
@@ -654,7 +656,7 @@ function talkSystemPrompt(typed) {
       inputNote: typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
         : "This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner's own mistake, ignore it.",
     }),
-    settingsRule('talk'),
+    settingsRule('talk') + docBlock('chat'),
     'Return only a JSON object with these keys:',
     '{"mistakes":[{"wrong":"their exact words","right":"corrected words","why":"short explanation"}],',
     '"corrected":"their message with only the reported mistakes fixed and everything else kept as they said it, or empty if no mistakes",',
@@ -715,6 +717,7 @@ function bubble(log, who, text, opts = {}) {
 async function handleTalk(text, typed) {
   const log = $('log'); clearEmpty(log);
   const mine = bubble(log, 'me', text, { typed });
+  docHeard(text);
   if (talkDrill && practiceLoop()) {
     mine.classList.add('practice-try');
     const pct = attemptCard(log, talkDrill.sentence, text, ++talkDrill.tries);
@@ -853,6 +856,7 @@ function liveTalkTurnDone(text) {
 function liveTalkUserSaid(text, bubbleEl) {
   if (!text) return false;
   userTurnNo++;
+  docHeard(text);
   if (bubbleEl) { myBubbles[userTurnNo] = bubbleEl; delete myBubbles[userTurnNo - 30]; }
   if (!talkDrill) return false;
   talkDrill.tries++; talkDrill.awaitingReply = true;
@@ -969,7 +973,7 @@ function continueHandsFree() {
 /* ---------- realtime call (WebRTC) ---------- */
 let rt = null;
 function rtInstructions() {
-  const base = prompt('liveConversation', openTalkVars()) + '\n' + settingsRule('live');
+  const base = prompt('liveConversation', openTalkVars()) + '\n' + settingsRule('live') + docBlock();
   if (!practiceLoop()) return base;
   return base + ' When you correct a mistake, say the corrected sentence and end with exactly: "Repeat after me: <the corrected sentence>", then ask your last question again. From then on the mistake is open: after everything the learner says, briefly correct it if needed, say the same corrected sentence again, ask them to repeat it, and ask your last question again. While a mistake is open do not ask anything new, do not change the topic and do not start practicing another sentence. Only when the learner says "OK, my mistake is closed" do you continue the conversation normally.';
 }
@@ -1501,6 +1505,7 @@ function switchMode(m) {
   document.querySelectorAll('.seg').forEach((b) => { const on = b.dataset.mode === m; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   document.querySelector('.segmented').dataset.mode = m;
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat'; syncTalkMode();
+  $('docBtn').hidden = m !== 'talk'; renderDocBar();
   syncTargetHint();
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
@@ -1691,6 +1696,7 @@ function init() {
     if (!rt && !gl) setStatus(isOpenTalk() ? 'Open talk: no corrections. Talk or ask anything.' : 'Practice: your mistakes will be corrected.');
   }));
   syncTalkMode();
+  setupDoc();
   $('topic').addEventListener('change', () => liveSettingsChanged());
   $('composer').addEventListener('submit', onTyped);
   let delArmed = null;
@@ -1710,7 +1716,7 @@ function init() {
       emptyState(); setStatus('Practice deleted.');
       return;
     }
-    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); drillDone.clear(); aiQuestions = []; myBubbles = {}; emptyState();
+    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); drillDone.clear(); aiQuestions = []; myBubbles = {}; clearDoc(); emptyState();
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
   $('log').addEventListener('click', (e) => {

@@ -463,3 +463,13 @@ dialog#guide {
 
 /* corrections scale under the slider */
 .scale-ends { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* a file as the conversation subject */
+#docBtn.on { color: var(--ai); border-color: color-mix(in srgb, var(--ai) 55%, var(--line)); }
+.doc-bar {
+  display: flex; align-items: center; gap: 8px; margin: -2px 0 8px; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); font-size: 14.5px;
+}
+.doc-bar svg { flex: none; color: var(--ai); }
+.doc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.doc-bar select { flex: 0 1 55%; min-width: 0; font-size: 16px; padding: 4px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }

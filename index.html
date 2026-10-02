@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.16.4">
+<link rel="stylesheet" href="style.css?v=2.17.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -59,7 +59,14 @@
   <section class="stage">
     <div class="topic-row">
       <input id="topic" type="text" placeholder="Topic or situation (optional). If empty, the AI asks you." autocomplete="off" enterkeyhint="done">
+      <button class="icon-btn" id="docBtn" type="button" aria-label="Add a file (md, txt, pdf, Word)" title="Add a file"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5Z"/></svg></button>
+      <input type="file" id="docFile" accept=".md,.markdown,.txt,.pdf,.docx,.doc,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
       <button class="pill-btn" id="newChat">Delete chat</button>
+    </div>
+    <div id="docBar" class="doc-bar" hidden>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm7 1.5V9h5.5L13 3.5Z"/></svg>
+      <span id="docName" class="doc-name"></span>
+      <select id="docChapter" aria-label="Chapter"></select>
     </div>
     <div id="talkView" class="view">
       <div id="log" class="log" aria-live="polite"></div>
@@ -279,7 +286,8 @@
   </div>
 </dialog>
 
-<script src="gemini.js?v=2.16.4"></script>
-<script src="app.js?v=2.16.4"></script>
+<script src="doc.js?v=2.17.0"></script>
+<script src="gemini.js?v=2.17.0"></script>
+<script src="app.js?v=2.17.0"></script>
 </body>
 </html>
