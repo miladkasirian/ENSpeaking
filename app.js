@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.0.0 (2026-10-02)';
+const VERSION = '2.0.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -73,10 +73,13 @@ function price(kind, model) {
   return o;
 }
 function guessChat(m) {
+  // GPT-6 tiers: published per-1M prices (Sep 2026).
+  if (/astra/.test(m)) return { in: 10, out: 50 };
+  if (/sol/.test(m)) return { in: 2, out: 10 };
   if (/luna/.test(m)) return { in: 0.10, out: 0.50 };
   if (/nano/.test(m)) return { in: 0.20, out: 1.25 };
   if (/mini/.test(m)) return { in: 0.75, out: 4.50 };
-  return { in: 0, out: 0 };
+  return { in: 0, out: 0, unknown: true };
 }
 
 /* ---------- state ---------- */
@@ -794,7 +797,11 @@ function modelLists() {
   const rtm = Object.keys(RT_MODELS).filter((m) => !availableModels || avail.includes(m)).concat(avail.filter((m) => /^gpt-realtime[\w.-]*$/.test(m) && !RT_MODELS[m] && !/translate|whisper|\d{4}-\d{2}-\d{2}/.test(m)));
   return { chat: chat.length ? chat : Object.keys(CHAT_MODELS), stt: stt.length ? stt : Object.keys(STT_MODELS), rt: rtm.length ? rtm : Object.keys(RT_MODELS) };
 }
-function chatLabel(m) { const p = price('chat', m); const n = (CHAT_MODELS[m] || {}).note; return `${m}  ($${p.in} / $${p.out})${n ? ', ' + n : ''}`; }
+function chatLabel(m) {
+  const p = price('chat', m); const n = (CHAT_MODELS[m] || {}).note;
+  if (p.unknown && !(S.prices[m] && (S.prices[m].in || S.prices[m].out))) return `${m}  (price not set: enter it in Settings)`;
+  return `${m}  ($${p.in} / $${p.out})${n ? ', ' + n : ''}`;
+}
 function rtLabel(m) { const p = price('rt', m); return `${m}  (audio $${p.ain} / $${p.aout})`; }
 function fillModelSelects() {
   const L = modelLists();
