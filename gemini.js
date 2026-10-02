@@ -284,12 +284,37 @@ function onMicChunk(st, f32) {
   // On the phone speaker the partner's own voice comes back into the mic and gets transcribed as yours.
   // So while the partner is talking (and a moment after), silence is sent instead of the mic,
   // unless "talk over the partner" is on (for headphones).
-  const partnerTalking = st.playT && st.ctx.currentTime < st.playT + 0.6;
-  const muted = partnerTalking && !S.bargeIn;
   const pcm = new DataView(new ArrayBuffer(st.q.length * 2));
-  if (!muted) for (let i = 0; i < st.q.length; i++) pcm.setInt16(i * 2, Math.max(-1, Math.min(1, st.q[i])) * 0x7fff, true);
+  let sum = 0;
+  for (let i = 0; i < st.q.length; i++) { const v = Math.max(-1, Math.min(1, st.q[i])); sum += v * v; pcm.setInt16(i * 2, v * 0x7fff, true); }
+  const rms = Math.sqrt(sum / st.q.length);
+  const chunk = bytesToB64(new Uint8Array(pcm.buffer));
   st.sentSec += st.q.length / 16000; st.q = [];
-  st.ws.send(JSON.stringify({ realtimeInput: { audio: { data: bytesToB64(new Uint8Array(pcm.buffer)), mimeType: 'audio/pcm;rate=16000' } } }));
+  const send = (data) => st.ws.send(JSON.stringify({ realtimeInput: { audio: { data, mimeType: 'audio/pcm;rate=16000' } } }));
+  if (!echoGate(st, rms, chunk)) { send(SILENCE_40MS); return; }
+  if (st.preroll && st.preroll.length) { st.preroll.forEach(send); st.preroll = []; }
+  send(chunk);
+}
+/* Echo gate. On the phone speaker the partner's voice comes back into the mic, and the browser cannot
+   cancel it (the voice arrives over a WebSocket, outside the browser's echo canceller). So while the
+   partner talks, and 0.6 s after, the mic is replaced by silence, except when you speak clearly louder
+   than the echo: then you can interrupt. The echo level is learned during each reply.
+   "Talk over the partner" (headphones) turns the gate off. */
+const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
+function echoGate(st, rms, chunk) {
+  if (S.bargeIn) return true;
+  const now = st.ctx.currentTime;
+  const talking = st.playT && now < st.playT + 0.6;
+  if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.preroll = []; return true; }
+  if (!st.replyStart) st.replyStart = now;
+  if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
+  // keep the last 0.2 s so the start of your words is not lost if the gate opens
+  st.preroll = (st.preroll || []).concat(chunk).slice(-5);
+  const floor = st.echoFloor || 0.02;
+  const learning = now - st.replyStart < 0.5; // first half second of each reply: only learn the echo level
+  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.gateOpenUntil = now + 1.2; return true; }
+  st.echoFloor = floor * 0.9 + rms * 0.1;
+  return false;
 }
 function playPcm24(st, b64) {
   const bytes = b64ToBytes(b64); const n = bytes.length >> 1; if (!n) return;

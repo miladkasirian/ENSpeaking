@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.16.1">
+<link rel="stylesheet" href="style.css?v=2.16.2">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -213,8 +213,8 @@
         <label class="field"><span>Live model</span><select id="gLiveModel"></select></label>
         <label class="field"><span>Voice</span><select id="gVoice"></select></label>
       </div>
-      <label class="check"><input type="checkbox" id="bargeIn"> Let me talk over the partner (use only with headphones)</label>
-      <p class="hint">Off: while the partner speaks, your mic is not sent, so its voice from the phone speaker is not taken as yours. To answer, wait until it finishes.</p>
+      <label class="check"><input type="checkbox" id="bargeIn"> I use headphones (send my mic all the time)</label>
+      <p class="hint">Off (phone speaker): while the partner speaks, your mic is held back so its voice is not taken as yours. To interrupt, speak clearly and a bit louder.</p>
     </section>
 
     <section class="group">
@@ -279,7 +279,7 @@
   </div>
 </dialog>
 
-<script src="gemini.js?v=2.16.1"></script>
-<script src="app.js?v=2.16.1"></script>
+<script src="gemini.js?v=2.16.2"></script>
+<script src="app.js?v=2.16.2"></script>
 </body>
 </html>
