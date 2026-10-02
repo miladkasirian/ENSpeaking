@@ -442,3 +442,9 @@ dialog#guide {
 .mic-text { flex: 1 1 160px; min-width: 0; }
 .mic-text h3 { margin: 0 0 2px; }
 .guide-dismiss { margin-top: 8px; width: 100%; padding: 11px; }
+
+.drill-bar { flex-wrap: wrap; }
+.db-actions { display: flex; gap: 6px; flex: none; }
+.drill-bar #drillRepeat { background: var(--panel); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, transparent); }
+.drill-bar .db-text { flex: 1 1 100%; }
+.db-actions { margin-left: auto; }

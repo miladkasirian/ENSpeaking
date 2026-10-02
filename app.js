@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.13.1 (2026-10-02)';
+const VERSION = '2.14.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -700,22 +700,69 @@ async function handleTalk(text, typed) {
 let talkDrill = null; // { sentence, tries, reply? (turn by turn: the reply held back until you continue) }
 const practiceLoop = () => !isOpenTalk() && S.strict !== 'off' && S.sayCorrections;
 function setTalkDrill(sentence, reply) {
-  talkDrill = { sentence, tries: 0, reply: reply || (talkDrill && talkDrill.sentence === sentence ? talkDrill.reply : null) };
+  const same = talkDrill && talkDrill.sentence === sentence;
+  talkDrill = same ? talkDrill : { sentence, tries: 0, reminders: 0, awaitingReply: false, checkFirst: false, reply: null };
+  if (reply) talkDrill.reply = reply;
   $('drillText').textContent = sentence; $('drillBar').hidden = false;
 }
 function clearTalkDrill() { talkDrill = null; $('drillBar').hidden = true; }
-/* A live coach turn finished: if it asked for a sentence again, pin it. */
+
+/* Live calls: the app, not the model, decides when a sentence is being practiced.
+   userTurnNo counts your finished utterances; lastAiTurn remembers the partner's last full reply. */
+let userTurnNo = 0;
+let lastAiTurn = { text: '', userTurn: -1 };
+function mentions(text, sentence) {
+  const want = words(sentence); if (!want.length) return false;
+  const have = new Set(words(text));
+  return want.filter((w) => have.has(w)).length / want.length >= 0.6;
+}
+/* Interrupt the partner and send it a note, in either live engine. */
+function liveInterrupt(note) {
+  if (gl) { cutPlayback(gl); geminiSay(note); return true; }
+  if (rt && rt.dc && rt.dc.readyState === 'open') {
+    try { rt.dc.send(JSON.stringify({ type: 'response.cancel' })); rt.dc.send(JSON.stringify({ type: 'output_audio_buffer.clear' })); } catch { /* ignore */ }
+    rtSay(note); return true;
+  }
+  return false;
+}
+function remindDrill(first) {
+  const d = talkDrill; if (!d || d.reminders >= 4) return;
+  d.reminders++;
+  liveInterrupt(first
+    ? `Wait, correct me first. I should say: "${d.sentence}". Say that sentence slowly and clearly, ask me to repeat it, and keep practicing it with me until I tap continue.`
+    : `We are still practicing "${d.sentence}". Do not move on. Tell me briefly what was wrong in my last try, say the sentence again, and ask me to repeat it.`);
+}
+/* The checker found a mistake in what you just said: pin the corrected sentence and make sure the partner works on it. */
+function onLiveMistake(sentence, turnNo) {
+  if (!practiceLoop() || !(rt || gl) || !sentence) return;
+  if (talkDrill && talkDrill.sentence !== sentence && talkDrill.tries) return; // already practicing another sentence
+  setTalkDrill(sentence);
+  if (lastAiTurn.userTurn === turnNo) { if (!mentions(lastAiTurn.text, sentence)) remindDrill(true); }
+  else talkDrill.checkFirst = true; // judge the partner's reply when it finishes
+}
+/* A live partner turn finished. */
 function liveTalkTurnDone(text) {
+  lastAiTurn = { text, userTurn: userTurnNo };
   if (!practiceLoop()) return;
   const d = parseDrill(text);
-  if (d) setTalkDrill(d.sentence);
+  if (d) { setTalkDrill(d.sentence); talkDrill.checkFirst = false; talkDrill.awaitingReply = false; return; }
+  if (!talkDrill) return;
+  if (talkDrill.checkFirst) { talkDrill.checkFirst = false; if (!mentions(text, talkDrill.sentence)) remindDrill(true); return; }
+  if (talkDrill.awaitingReply) { talkDrill.awaitingReply = false; if (!mentions(text, talkDrill.sentence)) remindDrill(false); }
 }
 /* What you said while a sentence is pinned is checked against it instead of being corrected again. */
 function liveTalkUserSaid(text) {
-  if (!talkDrill || !text) return false;
-  talkDrill.tries++;
+  if (!text) return false;
+  userTurnNo++;
+  if (!talkDrill) return false;
+  talkDrill.tries++; talkDrill.awaitingReply = true;
   attemptCard($('log'), talkDrill.sentence, text, talkDrill.tries);
   return true;
+}
+function sayDrillAgain() {
+  const d = talkDrill; if (!d) return;
+  if (rt || gl) { liveInterrupt(`Please say "${d.sentence}" again, slowly and clearly, then let me repeat it.`); return; }
+  stopSpeaking(); speak(d.sentence, Number(S.rate) * 0.9).then(() => continueHandsFree());
 }
 async function continueFromDrill() {
   const d = talkDrill; clearTalkDrill();
@@ -968,7 +1015,7 @@ function onRtEvent(ev) {
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
-    if (text && !liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
+    if (text && !liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
   } else if (t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta') {
     const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown(rtLog()); }
   } else if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
@@ -995,6 +1042,7 @@ function onRtEvent(ev) {
 }
 async function writtenCorrections(text, afterEl) {
   if (isOpenTalk()) return;
+  const turnNo = userTurnNo;
   try {
     const out = await chatJSON([
       { role: 'system', content: [
@@ -1005,10 +1053,13 @@ async function writtenCorrections(text, afterEl) {
     ], 300);
     const mistakes = Array.isArray(out.mistakes) ? out.mistakes.filter((m) => m && (m.wrong || m.right)) : [];
     if (!mistakes.length) return; // stay quiet in a live call when there is nothing to fix
-    const tmp = el('div'); renderFix(tmp, out);
-    const card = tmp.firstChild;
-    if (afterEl && afterEl.parentNode) afterEl.after(card); else $('log').appendChild(card);
-    persistChat();
+    if (S.rtWritten) {
+      const tmp = el('div'); renderFix(tmp, out);
+      const card = tmp.firstChild;
+      if (afterEl && afterEl.parentNode) afterEl.after(card); else $('log').appendChild(card);
+      persistChat();
+    }
+    if (out.corrected) onLiveMistake(String(out.corrected).trim(), turnNo);
   } catch { /* written corrections are optional */ }
 }
 function sendTypedRealtime(text) {
@@ -1016,7 +1067,7 @@ function sendTypedRealtime(text) {
   bubble($('log'), 'me', text, { typed: true });
   st.dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }));
   st.dc.send(JSON.stringify({ type: 'response.create' }));
-  if (!liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
+  if (!liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
   return true;
 }
 
@@ -1517,6 +1568,7 @@ function init() {
   });
   document.querySelectorAll('.seg').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
   $('drillContinue').addEventListener('click', () => { unlockAudio(); stopSpeaking(); continueFromDrill(); });
+  $('drillRepeat').addEventListener('click', () => { unlockAudio(); sayDrillAgain(); });
   document.querySelectorAll('#talkModes .tm').forEach((b) => b.addEventListener('click', () => {
     if (S.talkMode === b.dataset.tm) return;
     S.talkMode = b.dataset.tm; saveSettings(); syncTalkMode();
