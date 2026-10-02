@@ -406,17 +406,28 @@ function echoGate(st, rms, chunk) {
     }
   }
   if (st.echoChecked && st.aecOk) return true;
-  // 2) No echo cancellation: the partner's own voice is in the mic and cannot be told apart from yours by
-  //    loudness (its loud moments opened the mic and got typed as yours). So while it speaks the mic is held
-  //    back completely; the hand button (cutIn) stops the partner and opens the mic at once.
+  // 2) While the partner speaks the phone turns your mic down (your voice reads about 0.03 instead of 0.05).
+  //    So your voice from BARGE_LEVEL up, for 0.12 s and clearly above the partner's own echo, does what the
+  //    hand button does: the partner stops at once and your words (with the 0.4 s before) go to Gemini.
+  const echo = st.echoAvg ?? 0;
+  if (rms >= Math.max(BARGE_LEVEL, echo * 1.6)) {
+    st.loud = (st.loud || 0) + 1;
+    if (st.loud >= 3) { st.loud = 0; cutInGemini(true); return true; }
+    return false;
+  }
+  st.loud = 0;
+  st.echoAvg = echo * 0.9 + rms * 0.1; // the partner's echo level while you are quiet
   return false;
 }
 /* Hand button: stop the partner right now and listen to you. */
-function cutInGemini() {
+const BARGE_LEVEL = 0.03;
+function cutInGemini(byVoice) {
   const st = gl; if (!st || !st.ctx) return;
   cutPlayback(st); st.dropAudio = true; st.inReply = false;
   if (st.ai) { st.ai.querySelector('.txt').textContent = st.aiText.trim() + ' ...'; } // the reply stops here on screen too
-  st.gateOpenUntil = st.ctx.currentTime + 4; st.flushRing = false; st.ring = [];
+  st.gateOpenUntil = st.ctx.currentTime + 4;
+  if (byVoice) { st.flushRing = true; st.lastVoice = st.ctx.currentTime; } // keep what you just started saying
+  else { st.flushRing = false; st.ring = []; }
   st.ws && st.ws.readyState === 1 && st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
   st.paused = true;
 }
@@ -450,7 +461,7 @@ function finishMyTurn(st) {
     return;
   }
   if (!st.me) return;
-  const text = st.meText.trim(); const b = st.me;
+  const text = cleanScript(st.meText); const b = st.me;
   st.me = null; st.meText = '';
   b.classList.remove('pending');
   if (isNoise(text)) { b.remove(); return; } // only background noise was heard
@@ -469,12 +480,22 @@ function finishMyTurn(st) {
     b.classList.add('refining');
     betterTranscript(audio).then((better) => {
       b.classList.remove('refining');
+      better = cleanScript(better || '');
       if (better && !isNoise(better)) { b.querySelector('.txt').textContent = better; entry.content = better; persistChat(); }
       if (check) writtenCorrections(entry.content, b, turnNo);
     }).catch(() => { b.classList.remove('refining'); if (check) writtenCorrections(text, b, turnNo); });
   } else if (check) writtenCorrections(text, b, turnNo);
 }
 /* The learner's turn, written down by gemini-3.8-flash from the exact audio that was sent to Gemini Live. */
+/* Only English or Persian may appear in what you said. Words in any other script are dropped; Persian stays
+   only when there are at least two Persian words (one stray Persian word is a mishearing). */
+function cleanScript(text) {
+  const ws = String(text || '').trim().split(/\s+/).filter(Boolean);
+  const latin = (w) => /^[\p{Script=Latin}\p{N}\p{P}\p{S}]+$/u.test(w);
+  const persian = (w) => /^[\p{Script=Arabic}\p{N}\p{P}\u200c]+$/u.test(w) && /\p{Script=Arabic}/u.test(w);
+  const faCount = ws.filter(persian).length;
+  return ws.filter((w) => latin(w) || (persian(w) && faCount >= 2 && S.langs !== 'en')).join(' ');
+}
 async function betterTranscript(chunks) {
   const parts = chunks.map(b64ToBytes); const len = parts.reduce((n, p) => n + p.length, 0);
   const wav = new DataView(new ArrayBuffer(44 + len)); const w = (o, s) => { for (let i = 0; i < s.length; i++) wav.setUint8(o + i, s.charCodeAt(i)); };
@@ -483,7 +504,7 @@ async function betterTranscript(chunks) {
   let o = 44; parts.forEach((p) => { new Uint8Array(wav.buffer, o, p.length).set(p); o += p.length; });
   const lang = S.langs === 'en'
     ? 'The speaker speaks English. Write English only.'
-    : 'The speaker is an English learner and almost always speaks English: write English. Only if they clearly say a whole sentence in Persian (Farsi), write that sentence in Persian script. Never use any other language or script.';
+    : 'The speaker is an English learner and almost always speaks English: write English. Write Persian (in Persian script) only for words that are clearly Persian, and only when there are at least two Persian words. Any word you are not sure about: write your best English guess. Never use any other language or script.';
   const text = await Promise.race([
     geminiGenerate('gemini-3.8-flash', 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang,
       [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(new Uint8Array(wav.buffer)) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
@@ -537,7 +558,7 @@ function onGeminiMsg(st, msg) {
       st.meDuringReply = !!(st.playT && st.ctx.currentTime < st.playT + 1.5);
     }
     st.meText += sc.inputTranscription.text;
-    st.me.querySelector('.txt').textContent = st.meText.trim();
+    st.me.querySelector('.txt').textContent = cleanScript(st.meText);
     scrollDown(log);
   }
   const parts = (sc.modelTurn && sc.modelTurn.parts) || [];
