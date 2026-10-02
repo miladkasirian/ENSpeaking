@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.4 (2026-10-02)';
+const VERSION = '2.19.5 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -808,9 +808,9 @@ function isEcho(text, aiTexts) {
       let k = 0; while (i + k < ai.length && j + k < mine.length && ai[i + k] === mine[j + k]) k++;
       if (k > best) best = k;
     }
-    // short: only if it is exactly how the partner's turn began (the part of its voice that leaks back);
+    // short (a word or two that leaked back): those words in a row anywhere in what the partner said;
     // longer: a run of at least 3 of its words in a row covering almost all of what was heard
-    if (mine.length <= 3) return mine.every((w, i) => ai[i] === w);
+    if (mine.length <= 3) return best === mine.length;
     return best >= 3 && best / mine.length >= 0.85;
   });
 }
@@ -1232,7 +1232,6 @@ function onRtEvent(ev) {
     const text = String(ev.transcript || '').trim();
     if (b) { b.classList.remove('pending'); b.querySelector('.txt').textContent = text || '(not clear)'; }
     if (isNoise(text)) { if (b) b.remove(); return; } // only background noise was heard
-    if (isEcho(text, [lastAiTurn.text])) { if (b) b.remove(); return; } // the partner's own voice from the speaker
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);

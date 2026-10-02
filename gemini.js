@@ -390,7 +390,9 @@ const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
   const now = st.ctx.currentTime;
   // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
-  const talking = st.playT && now < st.playT + 0.4;
+  // the voice comes out of the speaker a bit later than scheduled (the echo-cancellation path and the
+  // iPhone's audio output add delay), so the last word would leak back without this margin
+  const talking = st.playT && now < st.playT + 0.9;
   if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.loud = 0; return true; }
   if (!st.replyStart) st.replyStart = now;
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
@@ -436,7 +438,9 @@ function finishMyTurn(st) {
   st.me = null; st.meText = '';
   b.classList.remove('pending');
   if (isNoise(text)) { b.remove(); return; } // only background noise was heard
-  if (isEcho(text, [st.aiText, lastAiTurn.text, st.prevAi])) { b.remove(); return; } // the partner's own voice from the speaker
+  // Only words heard while the partner's voice was coming out of the speaker can be its echo. What you say
+  // when it is quiet is always yours, even if the partner repeats your words in its reply.
+  if (st.meDuringReply && isEcho(text, [st.aiText, lastAiTurn.text, st.prevAi])) { b.remove(); return; }
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
   persistChat();
@@ -481,7 +485,10 @@ function onGeminiMsg(st, msg) {
     st.meText += sc.inputTranscription.text; st.meStarted = true;
     $('status').textContent = 'Hearing: ' + st.meText.trim();
   } else if (sc.inputTranscription && sc.inputTranscription.text) {
-    if (!st.me) { clearEmpty(log); st.me = bubble(log, 'me', '', { pending: true }); st.meText = ''; }
+    if (!st.me) {
+      clearEmpty(log); st.me = bubble(log, 'me', '', { pending: true }); st.meText = '';
+      st.meDuringReply = !!(st.playT && st.ctx.currentTime < st.playT + 1.5);
+    }
     st.meText += sc.inputTranscription.text;
     st.me.querySelector('.txt').textContent = st.meText.trim();
     scrollDown(log);
