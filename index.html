@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>EN Speaking</title>
 <meta name="description" content="Practice spoken English with an AI partner.">
-<meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#15171a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef2fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1830" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -14,134 +14,183 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">EN Speaking</div>
-  <div class="cost" id="cost" title="Estimated cost of this session">$0.000</div>
-  <button class="icon-btn" id="openSettings" aria-label="Settings">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9 4.6v-2.2l-2.3-.5a7 7 0 0 0-.7-1.6l1.3-2-1.6-1.6-2 1.3a7 7 0 0 0-1.6-.7L13.6 3h-2.2l-.5 2.3a7 7 0 0 0-1.6.7l-2-1.3-1.6 1.6 1.3 2a7 7 0 0 0-.7 1.6L3 10.9v2.2l2.3.5c.2.6.4 1.1.7 1.6l-1.3 2 1.6 1.6 2-1.3c.5.3 1 .5 1.6.7l.5 2.3h2.2l.5-2.3c.6-.2 1.1-.4 1.6-.7l2 1.3 1.6-1.6-1.3-2c.3-.5.5-1 .7-1.6l2.3-.5Z"/></svg>
-  </button>
-</header>
+<div class="shell" id="shell">
 
-<nav class="modes" role="tablist">
-  <button role="tab" class="mode active" data-mode="talk" aria-selected="true">Conversation</button>
-  <button role="tab" class="mode" data-mode="repeat" aria-selected="false">Repeat after me</button>
-</nav>
-
-<main id="main">
-  <section id="talkView">
-    <div class="topic-row">
-      <input id="topic" type="text" placeholder="Topic (optional): e.g. my weekend, a job interview" autocomplete="off">
-      <button class="ghost" id="newChat">New</button>
-    </div>
-    <div id="log" class="log" aria-live="polite"></div>
-  </section>
-
-  <section id="repeatView" hidden>
-    <div class="target-card">
-      <div class="target-label">Say this sentence <span id="focus" class="focus"></span></div>
-      <div id="target" class="target">Tap <b>Next sentence</b> to start.</div>
-      <div class="target-actions">
-        <button class="ghost" id="hearAgain" disabled>Hear again</button>
-        <button class="ghost" id="hearSlow" disabled>Slow</button>
-        <button class="ghost" id="toggleText">Hide text</button>
-        <button class="primary-sm" id="nextSentence">Next sentence</button>
-      </div>
-    </div>
-    <div id="repeatLog" class="log"></div>
-  </section>
-</main>
-
-<footer class="dock">
-  <div id="status" class="status">Tap the mic and speak.</div>
-  <div class="dock-row">
-    <button class="side-btn" id="replay" aria-label="Replay last answer" disabled>
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"/></svg>
+  <header class="top">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>EN Speaking</div>
+    <button class="spend" id="spendBtn" aria-label="Cost of this session. Tap for details.">
+      <span class="spend-num" id="cost">$0.0000</span>
+      <span class="spend-cap">this session</span>
     </button>
-    <button class="mic" id="mic" aria-label="Start speaking">
-      <svg class="mic-icon" viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2Z"/></svg>
-      <svg class="stop-icon" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
-      <span class="ring"></span>
+    <button class="icon-btn" id="openSettings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm9 4.6v-2.2l-2.3-.5a7 7 0 0 0-.7-1.6l1.3-2-1.6-1.6-2 1.3a7 7 0 0 0-1.6-.7L13.6 3h-2.2l-.5 2.3a7 7 0 0 0-1.6.7l-2-1.3-1.6 1.6 1.3 2a7 7 0 0 0-.7 1.6L3 10.9v2.2l2.3.5c.2.6.4 1.1.7 1.6l-1.3 2 1.6 1.6 2-1.3c.5.3 1 .5 1.6.7l.5 2.3h2.2l.5-2.3c.6-.2 1.1-.4 1.6-.7l2 1.3 1.6-1.6-1.3-2c.3-.5.5-1 .7-1.6l2.3-.5Z"/></svg>
     </button>
-    <button class="side-btn" id="handsFreeBtn" aria-label="Hands-free on or off" aria-pressed="false" title="Hands-free: listen again after each answer">
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 4a8 8 0 0 0-8 8v4a3 3 0 0 0 3 3h1v-7H6a6 6 0 0 1 12 0h-2v7h1a3 3 0 0 0 3-3v-4a8 8 0 0 0-8-8Z"/></svg>
+  </header>
+
+  <div class="modebar">
+    <div class="segmented" role="tablist" aria-label="Practice mode">
+      <button role="tab" class="seg active" data-mode="talk" aria-selected="true">Conversation</button>
+      <button role="tab" class="seg" data-mode="repeat" aria-selected="false">Repeat after me</button>
+      <span class="seg-glider" aria-hidden="true"></span>
+    </div>
+    <button class="engine-chip" id="engineChip" aria-label="Change engine and model">
+      <span class="engine-dot" aria-hidden="true"></span>
+      <span id="engineName">Turn by turn</span>
+      <span class="engine-model" id="engineModel">gpt-4o-mini</span>
     </button>
   </div>
-</footer>
+
+  <section class="stage">
+    <div id="talkView" class="view">
+      <div class="topic-row">
+        <input id="topic" type="text" placeholder="Topic, if you want one: my weekend, a job interview..." autocomplete="off" enterkeyhint="done">
+        <button class="pill-btn" id="newChat">Delete chat</button>
+      </div>
+      <div id="log" class="log" aria-live="polite"></div>
+    </div>
+
+    <div id="repeatView" class="view" hidden>
+      <div class="target-card">
+        <div class="target-head">
+          <span>Say this sentence</span>
+          <span id="focus" class="focus"></span>
+        </div>
+        <p id="target" class="target">Tap Next sentence to begin.</p>
+        <div class="target-actions">
+          <button class="pill-btn" id="hearAgain" disabled>Hear again</button>
+          <button class="pill-btn" id="hearSlow" disabled>Slowly</button>
+          <button class="pill-btn" id="toggleText">Hide text</button>
+          <button class="pill-btn" id="clearRepeat">Clear tries</button>
+          <button class="pill-btn strong" id="nextSentence">Next sentence</button>
+        </div>
+      </div>
+      <div id="repeatLog" class="log"></div>
+    </div>
+  </section>
+
+  <form class="composer" id="composer" autocomplete="off">
+    <input id="typed" type="text" placeholder="Type a message in English" enterkeyhint="send" aria-label="Type a message">
+    <button class="send" id="sendBtn" aria-label="Send">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+    </button>
+  </form>
+
+  <div class="dock">
+    <div class="orb-wrap">
+      <button class="side-btn" id="replay" aria-label="Replay the last answer" disabled>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"/></svg>
+      </button>
+      <button class="orb" id="mic" aria-label="Start speaking">
+        <canvas id="orbCanvas" aria-hidden="true"></canvas>
+        <span class="orb-glyph" aria-hidden="true">
+          <svg class="g-mic" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2Z"/></svg>
+          <svg class="g-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/></svg>
+          <svg class="g-call" viewBox="0 0 24 24"><path fill="currentColor" d="M21 15.5v3.2a1.3 1.3 0 0 1-1.4 1.3A17 17 0 0 1 4 4.4 1.3 1.3 0 0 1 5.3 3h3.2c.6 0 1.2.5 1.3 1.1l.5 2.8c.1.5-.1 1-.5 1.3L8.2 9.7a14 14 0 0 0 6.1 6.1l1.5-1.6c.3-.4.8-.6 1.3-.5l2.8.5c.6.1 1.1.7 1.1 1.3Z"/></svg>
+        </span>
+      </button>
+      <button class="side-btn" id="handsFreeBtn" aria-label="Hands-free listening" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 4a8 8 0 0 0-8 8v4a3 3 0 0 0 3 3h1v-7H6a6 6 0 0 1 12 0h-2v7h1a3 3 0 0 0 3-3v-4a8 8 0 0 0-8-8Z"/></svg>
+      </button>
+    </div>
+    <div id="status" class="status" role="status">Tap the circle and speak.</div>
+
+    <div class="ledger" id="ledger" aria-label="Spending">
+      <div class="ledger-title">Spending</div>
+      <div class="ledger-rows" id="ledgerRows"></div>
+    </div>
+  </div>
+</div>
 
 <dialog id="settings">
   <form method="dialog" class="sheet">
     <div class="sheet-head">
       <h2>Settings</h2>
-      <button class="ghost" value="close">Done</button>
+      <button class="pill-btn strong" value="close">Done</button>
     </div>
 
-    <label class="field">
-      <span>OpenAI API key</span>
-      <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
-      <small>Saved only on this device. Never in the code or on GitHub.</small>
-    </label>
+    <section class="group">
+      <h3>OpenAI key</h3>
+      <div class="key-row">
+        <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." aria-label="OpenAI API key">
+        <button type="button" class="pill-btn" id="checkKey">Check</button>
+      </div>
+      <p class="hint" id="keyHint">Stored only in this browser. It is never part of the code on GitHub.</p>
+    </section>
 
-    <div class="grid2">
-      <label class="field"><span>My level</span>
-        <select id="level"><option>A2</option><option selected>B1</option><option>B2</option><option>C1</option></select>
-      </label>
-      <label class="field"><span>Corrections</span>
-        <select id="strict"><option value="all" selected>Every mistake</option><option value="major">Only important ones</option><option value="off">Off</option></select>
-      </label>
-      <label class="field"><span>Explain mistakes in</span>
-        <select id="explainLang"><option value="English" selected>English</option><option value="Persian">Persian</option></select>
-      </label>
-      <label class="field"><span>Reply length</span>
-        <select id="replyLen"><option value="short" selected>Short</option><option value="medium">Medium</option></select>
-      </label>
-    </div>
+    <section class="group" id="engineGroup">
+      <h3>Engine</h3>
+      <div class="choice">
+        <label class="choice-card"><input type="radio" name="engine" value="turn">
+          <span><b>Turn by turn</b><small>Speech to text, then a chat model, then a voice. Cheapest. About 1 to 3 seconds per reply.</small></span></label>
+        <label class="choice-card"><input type="radio" name="engine" value="realtime">
+          <span><b>Realtime</b><small>A live voice call. You can interrupt it. Costs several times more.</small></span></label>
+      </div>
+    </section>
 
-    <label class="check"><input id="sayCorrections" type="checkbox" checked> Say the correction out loud before replying</label>
-    <label class="check"><input id="autoStop" type="checkbox" checked> Stop recording when I go quiet</label>
-    <label class="check"><input id="handsFree" type="checkbox"> Hands-free: start listening again after each answer</label>
-
-    <h3>Voice</h3>
-    <div class="grid2">
-      <label class="field"><span>Voice engine</span>
-        <select id="voiceEngine"><option value="device" selected>iPhone voice (free)</option><option value="openai">OpenAI voice (paid, more natural)</option></select>
-      </label>
-      <label class="field" id="deviceVoiceWrap"><span>iPhone voice</span>
-        <select id="deviceVoice"></select>
-      </label>
-      <label class="field" id="openaiVoiceWrap" hidden><span>OpenAI voice</span>
-        <select id="openaiVoice"><option>alloy</option><option>ash</option><option>coral</option><option>echo</option><option>fable</option><option>nova</option><option>onyx</option><option>sage</option><option>shimmer</option></select>
-      </label>
-      <label class="field"><span>Speed <b id="rateVal">1.0</b></span>
-        <input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="1">
-      </label>
-    </div>
-    <button type="button" class="ghost" id="testVoice">Test voice</button>
-
-    <details class="adv">
-      <summary>Advanced: models and prices</summary>
+    <section class="group" id="turnGroup">
+      <h3>Turn by turn</h3>
       <div class="grid2">
-        <label class="field"><span>Chat model</span><input id="chatModel" type="text"></label>
-        <label class="field"><span>Speech-to-text model</span><input id="sttModel" type="text"></label>
-        <label class="field"><span>Text-to-speech model</span><input id="ttsModel" type="text"></label>
-        <label class="field"><span>STT $ per minute</span><input id="pSTT" type="number" step="0.0001"></label>
-        <label class="field"><span>Chat $ per 1M input</span><input id="pIn" type="number" step="0.01"></label>
-        <label class="field"><span>Chat $ per 1M output</span><input id="pOut" type="number" step="0.01"></label>
-        <label class="field"><span>OpenAI voice $ per minute</span><input id="pTTS" type="number" step="0.0001"></label>
+        <label class="field"><span>Chat model</span><select id="chatModel"></select></label>
+        <label class="field"><span>Speech to text</span><select id="sttModel"></select></label>
+        <label class="field"><span>Voice</span>
+          <select id="voiceEngine"><option value="device">iPhone voice (free)</option><option value="openai">OpenAI voice (paid)</option></select></label>
+        <label class="field" id="deviceVoiceWrap"><span>iPhone voice</span><select id="deviceVoice"></select></label>
+        <label class="field" id="openaiVoiceWrap" hidden><span>OpenAI voice</span><select id="openaiVoice"></select></label>
+        <label class="field"><span>Speed <b id="rateVal">1.00</b></span><input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="1"></label>
       </div>
-      <small>Costs shown in the app are estimates from these numbers. Check your real usage on platform.openai.com.</small>
-      <div class="row-btns">
-        <button type="button" class="ghost" id="resetAdv">Reset to defaults</button>
+      <label class="check"><input id="speakTyped" type="checkbox"> Read replies aloud when I type</label>
+      <label class="check"><input id="autoStop" type="checkbox"> Stop recording when I go quiet</label>
+      <button type="button" class="pill-btn" id="testVoice">Test voice</button>
+    </section>
+
+    <section class="group" id="rtGroup">
+      <h3>Realtime</h3>
+      <div class="grid2">
+        <label class="field"><span>Realtime model</span><select id="rtModel"></select></label>
+        <label class="field"><span>Voice</span><select id="rtVoice"></select></label>
       </div>
+      <label class="check"><input id="rtWritten" type="checkbox"> Also show written corrections (uses the chat model, very cheap)</label>
+    </section>
+
+    <section class="group">
+      <h3>Practice</h3>
+      <div class="grid2">
+        <label class="field"><span>My level</span>
+          <select id="level"><option>A2</option><option>B1</option><option>B2</option><option>C1</option></select></label>
+        <label class="field"><span>Corrections</span>
+          <select id="strict"><option value="all">Every mistake</option><option value="major">Only important ones</option><option value="off">Off</option></select></label>
+        <label class="field"><span>Explain mistakes in</span>
+          <select id="explainLang"><option value="English">English</option><option value="Persian">Persian</option></select></label>
+        <label class="field"><span>Reply length</span>
+          <select id="replyLen"><option value="short">Short</option><option value="medium">Medium</option></select></label>
+      </div>
+      <label class="check"><input id="sayCorrections" type="checkbox"> Say the correction out loud before replying</label>
+      <label class="check"><input id="handsFree" type="checkbox"> Hands-free: listen again after each answer</label>
+    </section>
+
+    <section class="group">
+      <h3>Spending</h3>
+      <div class="totals" id="totals"></div>
+      <button type="button" class="pill-btn" id="resetTotals">Reset the all-time total</button>
+    </section>
+
+    <details class="group adv">
+      <summary>Prices used for the cost counter</summary>
+      <p class="hint">Dollars. Filled in from OpenAI's published prices for the models selected above. Change a number if OpenAI changes a price.</p>
+      <div class="grid3" id="priceGrid"></div>
+      <button type="button" class="pill-btn" id="resetPrices">Restore published prices</button>
     </details>
 
-    <div class="totals" id="totals"></div>
-    <div class="row-btns">
-      <button type="button" class="danger" id="forgetKey">Remove key from this device</button>
-    </div>
-    <small class="ver">Version <span id="ver"></span></small>
+    <section class="group danger-zone">
+      <button type="button" class="pill-btn danger" id="forgetKey">Remove the key from this device</button>
+      <p class="hint ver">Version <span id="ver"></span></p>
+    </section>
   </form>
 </dialog>
 
