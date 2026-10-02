@@ -481,25 +481,38 @@ function finishMyTurn(st) {
     betterTranscript(audio).then((better) => {
       b.classList.remove('refining');
       better = cleanScript(better || '');
-      if (better && !isNoise(better)) { showBothHeard(b, text, better); entry.content = better; persistChat(); }
+      if (better && !isNoise(better)) {
+        const same = showBothHeard(b, text, better); entry.content = better;
+        heardTag(b, same ? 'both heard the same' : 'checked: the two differ');
+        persistChat();
+      } else heardTag(b, 'checked: no words found');
       if (check) writtenCorrections(entry.content, b, turnNo);
-    }).catch(() => { b.classList.remove('refining'); if (check) writtenCorrections(text, b, turnNo); });
-  } else if (check) writtenCorrections(text, b, turnNo);
+    }).catch((e) => {
+      b.classList.remove('refining'); heardTag(b, 'live call only: check failed (' + String(e && e.message || e).slice(0, 80) + ')');
+      if (check) writtenCorrections(text, b, turnNo);
+    });
+  } else { heardTag(b, audio.length ? 'live call only (too short to check)' : 'live call only (no audio kept)'); if (check) writtenCorrections(text, b, turnNo); }
 }
 /* The learner's turn, written down by gemini-3.8-flash from the exact audio that was sent to Gemini Live. */
 /* When the quick live transcript and the careful one differ, show both under your words, with the words that
    differ marked, so you can see which words were heard unclearly. */
+/* A small note under your words: which transcription produced them. */
+function heardTag(b, msg) {
+  let t = b.querySelector('.heard-tag'); if (!t) { t = el('div', 'heard-tag'); b.appendChild(t); }
+  t.textContent = msg;
+}
 function showBothHeard(b, quick, better) {
   const tok = (s) => s.trim().split(/\s+/).filter(Boolean);
   const key = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
   const q = tok(quick), c = tok(better);
   const { tHit, sHit } = align(c.map(key), q.map(key));
   const txt = b.querySelector('.txt');
-  if (tHit.every(Boolean) && sHit.every(Boolean)) { txt.textContent = better; return; } // same words: nothing to compare
+  if (tHit.every(Boolean) && sHit.every(Boolean)) { txt.textContent = better; return true; } // same words: nothing to compare
   const mark = (ws, hit) => ws.map((w, i) => (hit[i] ? esc(w) : `<mark>${esc(w)}</mark>`)).join(' ');
   txt.innerHTML = mark(c, tHit);
   let alt = b.querySelector('.heard-alt'); if (!alt) { alt = el('div', 'heard-alt'); b.appendChild(alt); }
   alt.innerHTML = `<span>Live call heard:</span> ${mark(q, sHit)}`;
+  return false;
 }
 /* Only English or Persian may appear in what you said. Words in any other script are dropped; Persian stays
    only when there are at least two Persian words (one stray Persian word is a mishearing). */
