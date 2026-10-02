@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.8.1">
+<link rel="stylesheet" href="style.css?v=2.10.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -41,11 +41,16 @@
       <button role="tab" class="seg" data-mode="repeat" aria-selected="false">Repeat after me</button>
       <span class="seg-glider" aria-hidden="true"></span>
     </div>
-    <button class="engine-chip" id="engineChip" aria-label="Change engine and model">
-      <span class="engine-dot" aria-hidden="true"></span>
-      <span id="engineName">Turn by turn</span>
-      <span class="engine-model" id="engineModel">gpt-4o-mini</span>
-    </button>
+    <div class="chip-row">
+      <button class="engine-chip" id="engineChip" aria-label="Change engine and model">
+        <span class="engine-dot" aria-hidden="true"></span>
+        <span id="engineName">Turn by turn</span>
+        <span class="engine-model" id="engineModel">gpt-4o-mini</span>
+      </button>
+      <button class="talk-mode" id="talkModeBtn" aria-pressed="true" aria-label="Practice with corrections, or open talk">
+        <span class="tm-dot" aria-hidden="true"></span><span class="tm-label">Practice</span>
+      </button>
+    </div>
   </div>
 
   <section class="stage">
@@ -55,6 +60,10 @@
     </div>
     <div id="talkView" class="view">
       <div id="log" class="log" aria-live="polite"></div>
+      <div id="drillBar" class="drill-bar" hidden>
+        <div class="db-text"><span class="db-label">Say it again</span><p id="drillText"></p></div>
+        <button class="pill-btn strong" id="drillContinue">OK, continue</button>
+      </div>
     </div>
 
     <div id="repeatView" class="view" hidden>
@@ -236,7 +245,7 @@
   </form>
 </dialog>
 
-<script src="gemini.js?v=2.8.1"></script>
-<script src="app.js?v=2.8.1"></script>
+<script src="gemini.js?v=2.10.0"></script>
+<script src="app.js?v=2.10.0"></script>
 </body>
 </html>

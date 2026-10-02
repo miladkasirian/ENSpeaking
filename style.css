@@ -367,3 +367,28 @@ dialog::backdrop { background: rgba(10, 16, 34, .5); backdrop-filter: blur(3px);
 .badge.on { color: var(--good); border-color: var(--good); }
 
 .install-btn { padding: 6px 12px; font-size: 13.5px; }
+
+/* Practice / Open talk switch, right of the engine chip */
+.chip-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chip-row .engine-chip { flex: 1 1 auto; min-width: 0; }
+.talk-mode {
+  flex: none; display: inline-flex; align-items: center; gap: 7px; margin-left: auto;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px 5px 6px;
+  font-size: 14px; font-weight: 700; color: var(--muted);
+}
+.tm-dot {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); background: transparent;
+  transition: background .2s, border-color .2s, box-shadow .2s;
+}
+.talk-mode[aria-pressed="true"] { color: var(--text); border-color: color-mix(in srgb, #22c55e 55%, var(--line)); }
+.talk-mode[aria-pressed="true"] .tm-dot { background: #22c55e; border-color: #22c55e; box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 25%, transparent); }
+
+/* the sentence you are practicing, pinned until you tap OK, continue */
+.drill-bar {
+  display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; padding: 10px 12px;
+  background: var(--good-soft); border: 1px solid color-mix(in srgb, var(--good) 40%, transparent); border-radius: var(--r-md);
+}
+.drill-bar .db-text { flex: 1; min-width: 0; }
+.drill-bar .db-label { font-size: 12.5px; color: var(--good); font-weight: 700; }
+.drill-bar p { margin: 2px 0 0; font: 650 17px/1.3 var(--display); overflow-wrap: anywhere; }
+.drill-bar .pill-btn { flex: none; background: var(--good); color: #fff; }

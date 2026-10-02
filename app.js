@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.8.1 (2026-10-02)';
+const VERSION = '2.10.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -40,6 +40,7 @@ const DEFAULTS = {
   engine: 'turn',
   level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'short',
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true,
+  talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
@@ -530,6 +531,7 @@ const PROMPTS = [
   ['liveCorrections', 'Live call: how to correct you out loud'],
   ['liveRepeat', 'Live call: Repeat after me drill'],
   ['conversation', 'Turn by turn: conversation'],
+  ['openTalk', 'Open talk: free conversation, no corrections'],
   ['repeatSentence', 'Turn by turn: choosing a sentence to repeat'],
   ['checker', 'Written corrections (checker)'],
   ['transcription', 'Speech to text'],
@@ -582,6 +584,16 @@ function promptVars(extra = {}) {
   }
   return v;
 }
+/* Open talk: the Conversation tab without corrections. */
+const isOpenTalk = () => S.talkMode === 'open';
+function openTalkVars() {
+  if (!isOpenTalk()) return {};
+  const note = fillPrompt(rawPrompt('openTalk'), {});
+  return {
+    corrections: note + ' Always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".',
+    spokenCorrections: note,
+  };
+}
 function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
 function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra)); }
 
@@ -602,7 +614,7 @@ function drillLength() {
 }
 function talkSystemPrompt(typed) {
   return [
-    prompt('conversation', {
+    prompt('conversation', { ...openTalkVars(),
       inputNote: typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
         : "This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner's own mistake, ignore it.",
     }),
@@ -641,17 +653,65 @@ function bubble(log, who, text, opts = {}) {
 async function handleTalk(text, typed) {
   const log = $('log'); clearEmpty(log);
   bubble(log, 'me', text, { typed });
+  if (talkDrill && practiceLoop()) {
+    const pct = attemptCard(log, talkDrill.sentence, text, ++talkDrill.tries);
+    if (pct === 100) { await speak('Good. Say it once more, or tap OK, continue.'); setStatus('Good. Say it again, or tap OK, continue.'); }
+    else { await speak('Try again. ' + talkDrill.sentence, Number(S.rate) * 0.9); setStatus('Try again, or tap OK, continue.'); }
+    if (!typed) continueHandsFree();
+    return;
+  }
   setPhase('think'); setStatus('Thinking...');
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   const out = await chatJSON([{ role: 'system', content: talkSystemPrompt(typed) }, ...history]);
   const reply = String(out.reply || '').trim() || 'Sorry, could you say that again?';
   history.push({ role: 'assistant', content: reply });
-  const mistakes = renderFix(log, out);
+  const mistakes = isOpenTalk() ? [] : renderFix(log, out);
+  if (mistakes.length && out.corrected && practiceLoop()) {
+    // hold the reply; first practice the corrected sentence until you tap OK, continue
+    setTalkDrill(String(out.corrected).trim(), reply);
+    const fix = out.spoken_fix ? String(out.spoken_fix).trim() + ' ' : '';
+    if (typed && !S.speakTyped) { setPhase('idle'); setStatus('Say or type the corrected sentence, or tap OK, continue.'); return; }
+    await speak(fix + 'Now you say it: ' + talkDrill.sentence);
+    setStatus('Say the corrected sentence. Tap OK, continue when you are ready.');
+    if (!typed) continueHandsFree();
+    return;
+  }
   bubble(log, 'ai', reply, { play: true });
   if (typed && !S.speakTyped) { setPhase('idle'); setStatus('Your turn. Tap the circle or type.'); return; }
   const fixSpoken = S.sayCorrections && mistakes.length && out.spoken_fix ? String(out.spoken_fix).trim() + ' ' : '';
   await speak(fixSpoken + reply);
   if (!typed) continueHandsFree();
+}
+
+/* ---------- practice loop in the Conversation tab ----------
+   In Practice mode a correction becomes a sentence to say again. The app stays on it,
+   checking each try, until you tap "OK, continue". Open talk skips all of this. */
+let talkDrill = null; // { sentence, tries, reply? (turn by turn: the reply held back until you continue) }
+const practiceLoop = () => !isOpenTalk() && S.strict !== 'off' && S.sayCorrections;
+function setTalkDrill(sentence, reply) {
+  talkDrill = { sentence, tries: 0, reply: reply || (talkDrill && talkDrill.sentence === sentence ? talkDrill.reply : null) };
+  $('drillText').textContent = sentence; $('drillBar').hidden = false;
+}
+function clearTalkDrill() { talkDrill = null; $('drillBar').hidden = true; }
+/* A live coach turn finished: if it asked for a sentence again, pin it. */
+function liveTalkTurnDone(text) {
+  if (!practiceLoop()) return;
+  const d = parseDrill(text);
+  if (d) setTalkDrill(d.sentence);
+}
+/* What you said while a sentence is pinned is checked against it instead of being corrected again. */
+function liveTalkUserSaid(text) {
+  if (!talkDrill || !text) return false;
+  talkDrill.tries++;
+  attemptCard($('log'), talkDrill.sentence, text, talkDrill.tries);
+  return true;
+}
+async function continueFromDrill() {
+  const d = talkDrill; clearTalkDrill();
+  const msg = "OK, let's continue the conversation.";
+  if (rt) { rtSay(msg); return; }
+  if (gl) { geminiSay(msg); return; }
+  if (d && d.reply) { bubble($('log'), 'ai', d.reply, { play: true }); await speak(d.reply); continueHandsFree(); }
 }
 
 /* ---------- repeat after me ---------- */
@@ -709,17 +769,21 @@ async function nextSentence() {
 /* Draws one try against the target sentence and returns the share of words hit, in percent. */
 function renderAttempt(text) {
   attempts++;
-  const { tHit, sHit, score } = align(words(target.sentence), words(text));
+  return attemptCard($('repeatLog'), target.sentence, text, attempts);
+}
+/* A word-by-word check of one try against a sentence, drawn into the given log. Returns percent. */
+function attemptCard(log, sentence, text, n) {
+  const { tHit, sHit, score } = align(words(sentence), words(text));
   let k = 0;
-  const targetHtml = target.sentence.split(/\s+/).map((tok) => {
+  const targetHtml = sentence.split(/\s+/).map((tok) => {
     const n = words(tok).length || 1; const ok = tHit.slice(k, k + n).every(Boolean); k += n;
     return `<span class="${ok ? 'hit' : 'miss'}">${esc(tok)}</span>`;
   }).join(' ');
   const saidHtml = words(text).map((w, i) => sHit[i] ? esc(w) : `<span class="extra">${esc(w)}</span>`).join(' ');
   const pct = Math.round(score * 100);
-  const log = $('repeatLog'); clearEmpty(log);
+  clearEmpty(log);
   const card = el('div', 'fix' + (pct === 100 ? ' ok' : ''));
-  card.innerHTML = `<div class="title">Try ${attempts}: <span class="score">${pct}%</span> of the words</div>` +
+  card.innerHTML = `<div class="title">Try ${n}: <span class="score">${pct}%</span> of the words</div>` +
     `<div class="diff">${targetHtml}</div><div class="why" style="margin-top:6px">I heard: <span class="diff">${saidHtml || '(nothing)'}</span></div>`;
   log.appendChild(card); scrollDown(log);
   return pct;
@@ -727,16 +791,15 @@ function renderAttempt(text) {
 async function handleRepeat(text) {
   if (!target) { setPhase('idle'); setStatus('Tap Next sentence first.'); return; }
   const pct = renderAttempt(text);
+  // Stays on this sentence until you tap Next sentence.
   if (pct === 100) {
-    await speak('Perfect.');
-    setStatus('Perfect. Tap Next sentence.');
-    if (S.handsFree && !handsFreeCancelled) await nextSentence();
-  } else if (S.handsFree && !handsFreeCancelled) {
-    if (attempts >= 3) { await speak("Let's try a new one."); await nextSentence(); }
-    else { await speak('Listen again. ' + target.sentence, Number(S.rate) * 0.9); continueHandsFree(); }
+    await speak('Perfect. Say it again, or tap Next sentence.');
+    setStatus('Perfect. Say it again, or tap Next sentence when you are ready.');
   } else {
-    setPhase('idle'); setStatus('Red words were missed. Listen again, then tap the circle to retry.');
+    await speak('Listen again. ' + target.sentence, Number(S.rate) * 0.9);
+    setStatus('Red words were missed. Try again. Tap Next sentence when you are ready to move on.');
   }
+  if (S.handsFree && !handsFreeCancelled) continueHandsFree(); else if (phase !== 'rec') setPhase('idle');
 }
 function continueHandsFree() {
   if (!S.handsFree || handsFreeCancelled) return;
@@ -747,7 +810,9 @@ function continueHandsFree() {
 /* ---------- realtime call (WebRTC) ---------- */
 let rt = null;
 function rtInstructions() {
-  return prompt('liveConversation');
+  const base = prompt('liveConversation', openTalkVars());
+  if (!practiceLoop()) return base;
+  return base + ' When you ask the learner to say a corrected sentence or word again, end that turn with exactly: "Repeat after me: <the corrected sentence or word>". Use this pattern for every new try. Do not continue the conversation until the learner says "OK, let\'s continue".';
 }
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged() {
@@ -887,12 +952,12 @@ function onRtEvent(ev) {
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
-    if (text && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
+    if (text && !liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
   } else if (t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta') {
     const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown(rtLog()); }
   } else if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
     const b = rtBubble(ev.item_id, 'ai'); if (b && ev.transcript) b.querySelector('.txt').textContent = ev.transcript;
-    if (ev.transcript) { history.push({ role: 'assistant', content: ev.transcript }); history = history.slice(-16); }
+    if (ev.transcript) { history.push({ role: 'assistant', content: ev.transcript }); history = history.slice(-16); liveTalkTurnDone(ev.transcript); }
   } else if (t === 'response.done') {
     const u = ev.response && ev.response.usage;
     if (u) {
@@ -913,6 +978,7 @@ function onRtEvent(ev) {
   }
 }
 async function writtenCorrections(text, afterEl) {
+  if (isOpenTalk()) return;
   try {
     const out = await chatJSON([
       { role: 'system', content: [
@@ -934,7 +1000,7 @@ function sendTypedRealtime(text) {
   bubble($('log'), 'me', text, { typed: true });
   st.dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }));
   st.dc.send(JSON.stringify({ type: 'response.create' }));
-  if (S.rtWritten && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
+  if (!liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
   return true;
 }
 
@@ -1081,6 +1147,13 @@ function syncProviderUI() {
   });
   fillModelSelects();
 }
+function syncTalkMode() {
+  const b = $('talkModeBtn'); const practice = !isOpenTalk();
+  b.setAttribute('aria-pressed', practice ? 'true' : 'false');
+  b.querySelector('.tm-label').textContent = practice ? 'Practice' : 'Open talk';
+  b.title = practice ? 'Practice: mistakes are corrected. Tap for open talk.' : 'Open talk: no corrections. Tap for practice.';
+  b.hidden = mode !== 'talk';
+}
 function syncTargetHint() {
   if (target) return;
   $('target').textContent = usesCall() ? 'Tap the circle to start. The coach will ask what you want to practice.' : 'Tap Next sentence to begin.';
@@ -1128,7 +1201,7 @@ async function checkGeminiKey() {
 }
 
 const PROMPT_GROUPS = [
-  ['Conversation tab', ['liveConversation', 'liveCorrections', 'conversation']],
+  ['Conversation tab', ['liveConversation', 'liveCorrections', 'conversation', 'openTalk']],
   ['Repeat after me tab', ['liveRepeat', 'repeatSentence']],
   ['Both tabs', ['checker', 'transcription']],
 ];
@@ -1252,7 +1325,7 @@ function switchMode(m) {
   stopSpeaking(); mode = m; setPhase('idle');
   document.querySelectorAll('.seg').forEach((b) => { const on = b.dataset.mode === m; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   document.querySelector('.segmented').dataset.mode = m;
-  $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat';
+  $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat'; syncTalkMode();
   syncTargetHint();
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
@@ -1332,6 +1405,13 @@ function init() {
     setStatus(S.handsFree ? 'Hands-free is on: I listen again after each answer.' : 'Hands-free is off.');
   });
   document.querySelectorAll('.seg').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
+  $('drillContinue').addEventListener('click', () => { unlockAudio(); stopSpeaking(); continueFromDrill(); });
+  $('talkModeBtn').addEventListener('click', () => {
+    S.talkMode = isOpenTalk() ? 'practice' : 'open'; saveSettings(); syncTalkMode(); liveSettingsChanged();
+    if (isOpenTalk() && talkDrill) continueFromDrill();
+    if (!rt && !gl) setStatus(isOpenTalk() ? 'Open talk: no corrections. Talk or ask anything.' : 'Practice: your mistakes will be corrected.');
+  });
+  syncTalkMode();
   $('topic').addEventListener('change', () => liveSettingsChanged());
   $('composer').addEventListener('submit', onTyped);
   let delArmed = null;
@@ -1351,7 +1431,7 @@ function init() {
       emptyState(); setStatus('Practice deleted.');
       return;
     }
-    history = []; $('log').innerHTML = ''; store.del('ens.chat'); emptyState();
+    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); emptyState();
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
   $('log').addEventListener('click', (e) => {

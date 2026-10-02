@@ -164,6 +164,7 @@ function repeatInstructions() {
   return [
     prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
     'Whenever you give the learner something to repeat, a whole sentence or a single word, end that turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence or word>". Then stop and wait. Do not use this pattern in any other turn.',
+    'Never move on to a new sentence by yourself. Stay on the current sentence until the learner says "Next sentence, please".',
   ].join(' ');
 }
 /* Ask the coach for something during a live call, as if the learner had typed it. */
@@ -307,7 +308,7 @@ function finishMyTurn(st) {
   b.classList.remove('pending');
   if (!text) { b.remove(); return; }
   history.push({ role: 'user', content: text }); history = history.slice(-16);
-  if (S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
   persistChat();
 }
 function onGeminiMsg(st, msg) {
@@ -376,7 +377,7 @@ function onGeminiMsg(st, msg) {
   }
   if (sc.turnComplete) {
     finishMyTurn(st);
-    if (st.ai && st.aiText.trim()) { history.push({ role: 'assistant', content: st.aiText.trim() }); history = history.slice(-16); }
+    if (st.ai && st.aiText.trim()) { history.push({ role: 'assistant', content: st.aiText.trim() }); history = history.slice(-16); liveTalkTurnDone(st.aiText.trim()); }
     st.ai = null; st.aiText = '';
     persistChat();
   }
@@ -416,6 +417,6 @@ function sendTypedGemini(text) {
   const b = bubble($('log'), 'me', text, { typed: true });
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   st.ws.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true } }));
-  if (S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text) && S.rtWritten && S.strict !== 'off') writtenCorrections(text, b);
   return true;
 }
