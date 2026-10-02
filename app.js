@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.16.3 (2026-10-02)';
+const VERSION = '2.16.4 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -696,7 +696,10 @@ function isEcho(text, aiTexts) {
       let k = 0; while (i + k < ai.length && j + k < mine.length && ai[i + k] === mine[j + k]) k++;
       if (k > best) best = k;
     }
-    return mine.length <= 2 ? best === mine.length : best / mine.length >= 0.75;
+    // short: only if it is exactly how the partner's turn began (the part of its voice that leaks back);
+    // longer: a run of at least 3 of its words in a row covering almost all of what was heard
+    if (mine.length <= 3) return mine.every((w, i) => ai[i] === w);
+    return best >= 3 && best / mine.length >= 0.85;
   });
 }
 function bubble(log, who, text, opts = {}) {

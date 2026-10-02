@@ -243,7 +243,8 @@ function geminiSetup(st) {
   if (!st.basic) {
     setup.sessionResumption = st.handle ? { handle: st.handle } : {};
     // less eager speech detection, so background noise does not start a turn
-    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', prefixPaddingMs: 300, silenceDurationMs: 800 } };
+    // start of speech a little less eager (background noise); end of speech left at Gemini's fast default
+    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW' } };
   }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
@@ -305,16 +306,16 @@ function echoGate(st, rms, chunk) {
   if (S.bargeIn) return true;
   const now = st.ctx.currentTime;
   // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
-  const talking = st.playT && now < st.playT + (IS_IOS ? 1.2 : 0.7);
+  const talking = st.playT && now < st.playT + 0.5;
   if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.preroll = []; st.loud = 0; return true; }
   if (!st.replyStart) st.replyStart = now;
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
   // keep the last 0.2 s so the start of your words is not lost if the gate opens
   st.preroll = (st.preroll || []).concat(chunk).slice(-5);
   const floor = st.echoFloor || 0.02;
-  const learning = now - st.replyStart < 0.6; // start of each reply: only learn the echo level
+  const learning = now - st.replyStart < 0.4; // start of each reply: only learn the echo level
   // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
-  if (!learning && rms > Math.max(0.12, floor * 5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 4) { st.gateOpenUntil = now + 1.2; return true; } return false; }
+  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 3) { st.gateOpenUntil = now + 1.2; return true; } return false; }
   st.loud = 0;
   st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
   return false;
