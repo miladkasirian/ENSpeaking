@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.0 (2026-10-02)';
+const VERSION = '2.18.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,11 +38,11 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'B1', strict: 5, explainLang: 'English', replyLen: 1,
+  level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, bargeIn: false, saveData: true,
-  talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
+  talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
-  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
+  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', speed: 2, rate: 0.85,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
@@ -65,6 +65,16 @@ S.strict = Math.max(0, Math.min(5, Math.round(Number(S.strict))));
 // reply length used to be short / medium; it is now a 1 to 5 scale
 if (typeof S.replyLen === 'string') S.replyLen = { short: 1, medium: 2 }[S.replyLen] || Number(S.replyLen) || 1;
 S.replyLen = Math.max(1, Math.min(5, Math.round(Number(S.replyLen))));
+// speaking speed used to be a number (0.6 to 1.3); it is now a 1 to 5 scale, 3 = normal
+const SPEED_RATES = [0, 0.7, 0.85, 1, 1.15, 1.3];
+const SPEED_NAMES = ['', 'Very slow', 'Slow', 'Normal', 'Fast', 'Very fast'];
+if (S.speed === undefined) { const r = Number(S.rate) || 1; S.speed = r <= 0.75 ? 1 : r < 0.95 ? 2 : r <= 1.1 ? 3 : r <= 1.2 ? 4 : 5; }
+// new defaults (October 2026), applied once to settings saved before them
+if (!S.defaults2) {
+  Object.assign(S, { level: 'B2', strict: 2, replyLen: 3, speed: 2, talkMode: 'open', defaults2: true });
+  store.set('ens.settings', S);
+}
+S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
   const g = S.provider === 'gemini';
@@ -541,7 +551,7 @@ function tutorRules() {
 /* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
 function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
-  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}.`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()}`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
   const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
@@ -549,7 +559,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}`;
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}` + (kind === 'live' ? ' ' + speakingPace() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -642,13 +652,17 @@ function openTalkVars() {
 function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
 function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra)); }
 
-/* Live voices cannot be sped up without changing pitch, so the speed setting is passed as an instruction. */
+/* Live voices cannot be sped up without changing pitch, so the speed setting is passed as an instruction,
+   worded like a learner asking "speak slowly", which the live models follow well. */
 function speakingPace() {
-  const r = Number(S.rate) || 1;
-  if (r <= 0.75) return 'Speak slowly and clearly, with short pauses between phrases.';
-  if (r < 0.95) return 'Speak a little slower than normal, clearly.';
-  if (r <= 1.1) return 'Speak clearly, at a natural pace.';
-  return 'Speak a little faster than normal, like a fluent native speaker.';
+  return [
+    '',
+    'SPEED: speak VERY slowly in every turn, as if the learner just asked "please speak very slowly": clearly pronounce every word and pause briefly between phrases and sentences.',
+    'SPEED: speak slowly in every turn, as if the learner just asked "please speak slowly": clear words and a short pause between sentences.',
+    'SPEED: speak at a natural, normal pace, clearly.',
+    'SPEED: speak a little faster than normal in every turn, like a fluent native speaker in a relaxed chat.',
+    'SPEED: speak fast in every turn, at the full natural speed of a native speaker talking with a friend.',
+  ][S.speed] || 'Speak clearly, at a natural pace.';
 }
 /* Drill sentence length follows both the level and the Short/Medium setting. */
 function drillLength() {
@@ -1480,8 +1494,9 @@ function bindSettings() {
     if (r.checked) { endAnyCall(); S.engine = r.value; S[S.provider === 'gemini' ? 'gEngine' : 'oaEngine'] = r.value; saveSettings(); syncEngineUI(); idleStatus(); }
   }));
   $('deviceVoice').addEventListener('change', () => { S.deviceVoice = $('deviceVoice').value; saveSettings(); });
-  $('rate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
-  $('rate').addEventListener('input', () => { S.rate = Number($('rate').value); $('rateVal').textContent = S.rate.toFixed(2); saveSettings(); });
+  const showSpeed = () => { $('rateVal').textContent = `${S.speed}: ${SPEED_NAMES[S.speed]}`; };
+  $('rate').value = S.speed; showSpeed();
+  $('rate').addEventListener('input', () => { S.speed = Number($('rate').value); S.rate = SPEED_RATES[S.speed]; showSpeed(); saveSettings(); });
   $('rate').addEventListener('change', () => liveSettingsChanged());
   const showStrict = () => { $('strictVal').textContent = `${S.strict}: ${STRICT_NAMES[S.strict]}`; };
   $('strict').value = S.strict; showStrict();
