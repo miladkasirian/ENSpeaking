@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.5.0 (2026-10-02)';
+const VERSION = '2.5.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -499,6 +499,7 @@ function promptVars(extra = {}) {
     level: S.level, explainLang: S.explainLang,
     replyLength: REPLY_LEN[S.replyLen] || REPLY_LEN.short,
     drillLength: drillLength(),
+    speakingPace: speakingPace(),
     feedbackLength: S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences',
     corrections: tutorRules(), correctionScope: scope,
     topic: topicLine('talk'), inputNote: '',
@@ -512,6 +513,14 @@ function promptVars(extra = {}) {
 function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
 function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra)); }
 
+/* Live voices cannot be sped up without changing pitch, so the speed setting is passed as an instruction. */
+function speakingPace() {
+  const r = Number(S.rate) || 1;
+  if (r <= 0.75) return 'Speak slowly and clearly, with short pauses between phrases.';
+  if (r < 0.95) return 'Speak a little slower than normal, clearly.';
+  if (r <= 1.1) return 'Speak clearly, at a natural pace.';
+  return 'Speak a little faster than normal, like a fluent native speaker.';
+}
 /* Drill sentence length follows both the level and the Short/Medium setting. */
 function drillLength() {
   const t = S.replyLen === 'short'
@@ -671,7 +680,7 @@ function rtInstructions() {
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged() {
   if (rt && rt.dc && rt.dc.readyState === 'open') {
-    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rtInstructions() } }));
+    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rtInstructions(), audio: { output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
     setStatus('New settings applied to this call.');
   } else if (gl) {
     setStatus(geminiApplySettings() ? 'Applying the new settings to this call...' : 'The new settings start with your next call.');
@@ -691,7 +700,7 @@ async function startCall() {
       type: 'realtime', model: S.rtModel, instructions: rtInstructions(),
       audio: {
         input: { transcription: { model: 'gpt-4o-mini-transcribe', language: 'en' }, turn_detection: { type: 'semantic_vad' } },
-        output: { voice: S.rtVoice },
+        output: { voice: S.rtVoice, speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) },
       },
     };
     const sres = await fetch(API + '/realtime/client_secrets', { method: 'POST', headers: authJSON(), body: JSON.stringify({ session: sessionCfg }) });
@@ -960,6 +969,10 @@ function syncProviderUI() {
 }
 function syncEngineUI() {
   document.querySelectorAll('input[name="engine"]').forEach((r) => { r.checked = r.value === S.engine; });
+  // show only the settings of the engine in use; speed and practice settings stay visible
+  $('turnGroup').hidden = isCallEngine();
+  $('rtGroup').hidden = !(S.provider === 'openai' && S.engine === 'realtime');
+  $('gliveGroup').hidden = !(S.provider === 'gemini' && S.engine === 'glive');
   renderEngineChip(); if (phase === 'idle') setPhase('idle');
 }
 function idleStatus() {
@@ -1078,6 +1091,7 @@ function bindSettings() {
   $('deviceVoice').addEventListener('change', () => { S.deviceVoice = $('deviceVoice').value; saveSettings(); });
   $('rate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
   $('rate').addEventListener('input', () => { S.rate = Number($('rate').value); $('rateVal').textContent = S.rate.toFixed(2); saveSettings(); });
+  $('rate').addEventListener('change', () => liveSettingsChanged());
   $('testVoice').addEventListener('click', () => { unlockAudio(); stopSpeaking(); speak('Hi! This is how I sound. Shall we practice some English?'); });
   $('resetPrices').addEventListener('click', () => { S.prices = {}; saveSettings(); renderPrices(); fillModelSelects(); });
   $('resetTotals').addEventListener('click', () => { Object.keys(totals).forEach((k) => { totals[k] = 0; }); store.set('ens.totals', totals); renderTotals(); renderSpend(); });

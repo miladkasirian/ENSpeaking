@@ -165,7 +165,6 @@
           <select id="voiceEngine"><option value="device">iPhone voice (free)</option><option value="openai" data-prov="openai">OpenAI voice (paid)</option></select></label>
         <label class="field" id="deviceVoiceWrap"><span>iPhone voice</span><select id="deviceVoice"></select></label>
         <label class="field" id="openaiVoiceWrap" hidden><span>OpenAI voice</span><select id="openaiVoice"></select></label>
-        <label class="field"><span>Speed <b id="rateVal">1.00</b></span><input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="1"></label>
       </div>
       <label class="check"><input id="speakTyped" type="checkbox"> Read replies aloud when I type</label>
       <label class="check"><input id="autoStop" type="checkbox"> Stop recording when I go quiet</label>
@@ -199,6 +198,7 @@
           <select id="explainLang"><option value="English">English</option><option value="Persian">Persian</option></select></label>
         <label class="field"><span>Reply length</span>
           <select id="replyLen"><option value="short">Short (1 to 2 sentences)</option><option value="medium">Medium (3 to 5 sentences)</option></select></label>
+        <label class="field"><span>Speaking speed <b id="rateVal">1.00</b></span><input id="rate" type="range" min="0.6" max="1.3" step="0.05" value="1"></label>
       </div>
       <label class="check"><input id="sayCorrections" type="checkbox"> Say corrections out loud before replying (also in live calls)</label>
       <label class="check"><input id="handsFree" type="checkbox"> Hands-free: listen again after each answer</label>
@@ -210,7 +210,7 @@
       <label class="field"><span>Which instructions</span><select id="promptKey"></select></label>
       <textarea id="promptText" rows="11" spellcheck="false" aria-label="Instructions text"></textarea>
       <p class="hint" id="promptState"></p>
-      <p class="hint">Words in curly brackets are filled in from your settings: {level}, {replyLength}, {drillLength}, {feedbackLength}, {corrections}, {correctionScope}, {spokenCorrections}, {explainLang}, {topic}, {inputNote}. The answer format the app needs is added automatically.</p>
+      <p class="hint">Words in curly brackets are filled in from your settings: {level}, {replyLength}, {speakingPace}, {drillLength}, {feedbackLength}, {corrections}, {correctionScope}, {spokenCorrections}, {explainLang}, {topic}, {inputNote}. The answer format the app needs is added automatically.</p>
       <div class="row-btns">
         <button type="button" class="pill-btn strong" id="promptSave">Save</button>
         <button type="button" class="pill-btn" id="promptReset">Reset to default</button>
