@@ -118,15 +118,20 @@ function docCut(text, cap) { return text.length <= cap ? { body: text, cut: fals
 function docOutline() {
   return docState.chapters.map((c, i) => `${i + 1}. ${c.title}`).join('\n');
 }
+/* After the learner picks what to talk about, the partner offers two ways through it. */
+const DOC_WAY = 'Then ask how they want to go through it: "Do you want me to give you a short overview of all of it first, or should I split it into parts and we go through them one by one?" Follow their choice. With parts: name the parts first, then teach one part at a time and move to the next one only when the learner is ready.';
+/* The partner is also a teacher for the file's content. */
+const DOC_TEACH = 'You are also the learner\'s teacher for this material. Whenever the learner asks you to explain something (a part, an idea, a word, or the whole thing), explain it like a good teacher: simple, clear English at their level, with a short example, then check that they understood with one question. An explanation may be longer than the usual reply length, up to about 120 words per turn; then go back to talking about the material so the learner keeps practicing speaking. In practice mode keep correcting their mistakes as usual; if a mistake is still open when they ask for an explanation, explain first, then go back to that mistake.';
+
 /* The opening move with a file. */
 function docOpening() {
   const d = docState; const t = $('topic').value.trim();
   const focus = t ? ` The learner also wrote this focus: ${t}.` : '';
   if (d.chapters.length && d.chapter == null) {
-    return `The learner gave you a document called "${d.name}". It has these chapters:\n${docOutline()}\nAt the very start, greet the learner briefly and ask which chapter they want to talk about (you may name two or three). When they choose, talk only about that chapter: ask about its content and ideas and help them talk about it in their own words.${focus}`;
+    return `The learner gave you a document called "${d.name}". It has these chapters:\n${docOutline()}\nAt the very start, greet the learner briefly and ask which chapter they want to talk about (you may name two or three). When they choose, talk only about that chapter. ${DOC_WAY}${focus}`;
   }
-  if (d.chapter != null) return `The learner chose the chapter "${d.chapters[d.chapter].title}" of their document "${d.name}". Start right away with a friendly question about it. Talk only about this chapter.${focus}`;
-  return `The learner gave you a document called "${d.name}". At the very start, greet the learner briefly and ask what part or topic of the document they want to talk about, suggesting two or three topics from it. Then keep the conversation on the document.${focus}`;
+  if (d.chapter != null) return `The learner chose the chapter "${d.chapters[d.chapter].title}" of their document "${d.name}". Talk only about this chapter. At the very start, greet the learner briefly and name the chapter. ${DOC_WAY}${focus}`;
+  return `The learner gave you a document called "${d.name}". At the very start, greet the learner briefly and say in a few words what the document is about. ${DOC_WAY} Keep the conversation on the document.${focus}`;
 }
 /* The document itself, added by the code to the instructions of every Conversation engine. */
 function docBlock(engine = docEngine()) {
@@ -141,7 +146,7 @@ function docBlock(engine = docEngine()) {
     head = d.chapters.length ? `Chapters in the document:\n${docOutline()}\nOnce the learner picks a chapter, talk only about that chapter.` : '';
   }
   const { body, cut } = docCut(src, cap);
-  return `\n\nTHE LEARNER'S DOCUMENT "${d.name}". It is the subject of this whole conversation: stay on it and never drift to other topics, unless the learner clearly asks.` +
+  return `\n\nTHE LEARNER'S DOCUMENT "${d.name}". It is the subject of this whole conversation: stay on it and never drift to other topics, unless the learner clearly asks.\n${DOC_TEACH}` +
     (head ? '\n' + head : '') +
     (cut ? '\n(Only the beginning is shown below because it is long. If the learner asks about a part you cannot see, say so briefly and ask them to tell you about it.)' : '') +
     `\n--- DOCUMENT START ---\n${body}\n--- DOCUMENT END ---`;
