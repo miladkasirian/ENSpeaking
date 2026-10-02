@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.7 (2026-10-02)';
+const VERSION = '2.18.8 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -172,7 +172,7 @@ async function keepScreenOn(on) {
 function paceRequest() {
   return ['', 'Please speak very slowly with me, word by word, with short pauses, for the whole conversation.',
     'Please speak slowly with me for the whole conversation.', 'Please speak at a normal, natural pace with me.',
-    'You can speak a bit faster than normal with me.', 'Please speak fast with me, at full native speed.'][S.speed] || '';
+    'You can speak a bit faster than normal with me, fluently, like a native speaker.', 'Please speak fast and fluently with me, at full native speed, like an American talking with a friend.'][S.speed] || '';
 }
 const withPace = (text) => (paceRequest() ? text + ' ' + paceRequest() : text);
 function setPhase(p) {
@@ -582,7 +582,7 @@ function tutorRules() {
 /* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
 function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
-  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()}`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${SOUND_NATURAL}`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
   const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
@@ -590,7 +590,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}` + (kind === 'live' ? ' ' + speakingPace() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + SOUND_NATURAL + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -685,14 +685,16 @@ function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra
 
 /* Live voices cannot be sped up without changing pitch, so the speed setting is passed as an instruction,
    worded like a learner asking "speak slowly", which the live models follow well. */
+/* How the partner sounds at every speed: a real American speaking, not text being read out. */
+const SOUND_NATURAL = 'DELIVERY: always sound like a real American talking, not like someone reading text aloud: fluent, smooth and connected, with natural rhythm, stress and intonation, contractions, and short natural pauses only where a speaker would breathe. Say your words as spoken English, not as written sentences.';
 function speakingPace() {
   return [
     '',
     'SPEED: speak VERY slowly in every turn, as if the learner just asked "please speak very slowly": clearly pronounce every word and pause briefly between phrases and sentences.',
     'SPEED: speak slowly in every turn, as if the learner just asked "please speak slowly": clear words and a short pause between sentences.',
     'SPEED: speak at a natural, normal pace, clearly.',
-    'SPEED: speak a little faster than normal in every turn, like a fluent native speaker in a relaxed chat.',
-    'SPEED: speak fast in every turn, at the full natural speed of a native speaker talking with a friend.',
+    'SPEED: speak a little faster than normal in every turn, like a fluent native speaker in a relaxed chat: smooth, connected speech, words linked together, natural reductions (gonna, wanna, kinda) where an American would use them.',
+    'SPEED: speak fast in every turn, at the full natural speed of an American talking with a friend: smooth, connected, flowing speech with linked words, natural reductions (gonna, wanna, kinda) and relaxed intonation. Never sound like you are reading.',
   ][S.speed] || 'Speak clearly, at a natural pace.';
 }
 /* Drill sentence length follows both the level and the Short/Medium setting. */
@@ -1405,7 +1407,7 @@ function idleStatus() {
   setStatus(haveKey ? (usesCall() ? (mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle to start. The coach says a sentence, you repeat it.') : 'Tap the circle and speak, or type below.')
     : `Start by adding your ${S.provider === 'gemini' ? 'Gemini' : 'OpenAI'} key in Settings.`);
 }
-function syncHandsFree() { $('handsFree').checked = !!S.handsFree; }
+function syncHandsFree() { S.handsFree = false; } // the hands-free option was removed
 /* The partner's volume inside the app (0 = silent). On iPhone the side buttons cannot go fully silent
    while the microphone is in use, so this is the way to turn it all the way down. */
 const volGain = () => { const v = Math.max(0, Math.min(100, Number(S.volume))) / 100; return v * v; }; // feels even across the range
@@ -1532,7 +1534,7 @@ function bindSettings() {
       if (['level', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic', 'saveData'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
