@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.14.1 (2026-10-02)';
+const VERSION = '2.15.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -207,6 +207,7 @@ function restoreChat() {
   if (!c || !c.html) return;
   $('log').innerHTML = c.html;
   $('log').querySelectorAll('.pending').forEach((n) => n.classList.remove('pending'));
+  $('log').querySelectorAll('.practice-pending').forEach((n) => n.classList.remove('practice-pending'));
   history = Array.isArray(c.history) ? c.history : [];
   scrollDown($('log'));
 }
@@ -663,15 +664,18 @@ function bubble(log, who, text, opts = {}) {
 }
 async function handleTalk(text, typed) {
   const log = $('log'); clearEmpty(log);
-  bubble(log, 'me', text, { typed });
+  const mine = bubble(log, 'me', text, { typed });
   if (talkDrill && practiceLoop()) {
+    mine.classList.add('practice-try');
     const pct = attemptCard(log, talkDrill.sentence, text, ++talkDrill.tries);
-    if (pct === 100) { await speak('Good. Say it once more, or tap OK, continue.'); setStatus('Good. Say it again, or tap OK, continue.'); }
-    else { await speak('Try again. ' + talkDrill.sentence, Number(S.rate) * 0.9); setStatus('Try again, or tap OK, continue.'); }
+    const q = talkDrill.question ? ' ' + talkDrill.question : '';
+    if (pct === 100) { await speak('Good. Say it once more, or tap OK, continue.' + q); setStatus('Good. Say it again, or tap OK, continue.'); }
+    else { await speak('Try again. ' + talkDrill.sentence + q, Number(S.rate) * 0.9); setStatus('Try again, or tap OK, continue.'); }
     if (!typed) continueHandsFree();
     return;
   }
   setPhase('think'); setStatus('Thinking...');
+  const prevAi = [...history].reverse().find((m) => m.role === 'assistant');
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   const out = await chatJSON([{ role: 'system', content: talkSystemPrompt(typed) }, ...history]);
   const reply = String(out.reply || '').trim() || 'Sorry, could you say that again?';
@@ -679,7 +683,7 @@ async function handleTalk(text, typed) {
   const mistakes = isOpenTalk() ? [] : renderFix(log, out);
   if (mistakes.length && out.corrected && practiceLoop()) {
     // hold the reply; first practice the corrected sentence until you tap OK, continue
-    setTalkDrill(String(out.corrected).trim(), reply);
+    setTalkDrill(String(out.corrected).trim(), reply, prevAi ? lastQuestion(prevAi.content) : '', mine);
     const fix = out.spoken_fix ? String(out.spoken_fix).trim() + ' ' : '';
     if (typed && !S.speakTyped) { setPhase('idle'); setStatus('Say or type the corrected sentence, or tap OK, continue.'); return; }
     await speak(fix + 'Now you say it: ' + talkDrill.sentence);
@@ -697,15 +701,34 @@ async function handleTalk(text, typed) {
 /* ---------- practice loop in the Conversation tab ----------
    In Practice mode a correction becomes a sentence to say again. The app stays on it,
    checking each try, until you tap "OK, continue". Open talk skips all of this. */
-let talkDrill = null; // { sentence, tries, reply? (turn by turn: the reply held back until you continue) }
+let talkDrill = null; // { sentence, question, tries, reminders, el (your wrong bubble), reply? (turn by turn: the reply held back) }
 const practiceLoop = () => !isOpenTalk() && S.strict !== 'off' && S.sayCorrections;
-function setTalkDrill(sentence, reply) {
-  const same = talkDrill && talkDrill.sentence === sentence;
-  talkDrill = same ? talkDrill : { sentence, tries: 0, reminders: 0, awaitingReply: false, checkFirst: false, reply: null };
-  if (reply) talkDrill.reply = reply;
-  $('drillText').textContent = sentence; $('drillBar').hidden = false;
+/* The last question in a partner turn, so it can be asked again while you practice. */
+function lastQuestion(text) {
+  const qs = String(text || '').match(/[^.!?\n]*\?/g);
+  return qs ? qs[qs.length - 1].replace(/^\s*(repeat after me\s*[:,]?\s*)?/i, '').trim() : '';
 }
-function clearTalkDrill() { talkDrill = null; $('drillBar').hidden = true; }
+function setTalkDrill(sentence, reply, question, wrongEl) {
+  const same = talkDrill && talkDrill.sentence === sentence;
+  if (!same) {
+    if (talkDrill && talkDrill.el) talkDrill.el.classList.remove('practice-pending');
+    talkDrill = { sentence, question: '', tries: 0, reminders: 0, awaitingReply: false, checkFirst: false, reply: null, el: null };
+  }
+  if (reply) talkDrill.reply = reply;
+  if (question && !talkDrill.question) talkDrill.question = question;
+  if (wrongEl && !talkDrill.el) talkDrill.el = wrongEl;
+  if (talkDrill.el) talkDrill.el.classList.add('practice-pending');
+  $('drillText').textContent = sentence;
+  $('drillQuestion').textContent = talkDrill.question ? 'Question: ' + talkDrill.question : '';
+  $('drillQuestion').hidden = !talkDrill.question;
+  $('drillBar').hidden = false;
+}
+/* done: you tapped OK, so the pending mistake turns green; otherwise (chat deleted, Open talk) it is just dropped */
+function clearTalkDrill(done) {
+  if (talkDrill && talkDrill.el) { talkDrill.el.classList.remove('practice-pending'); if (done) talkDrill.el.classList.add('practice-done'); }
+  talkDrill = null; $('drillBar').hidden = true;
+  persistChat();
+}
 /* After "OK, continue" the sentence is finished: replies, reminders and checks that were
    already on their way must not pin it (or anything else) again. */
 let drillDoneAt = -1; // userTurnNo when you last tapped OK, continue
@@ -713,15 +736,23 @@ const drillDone = new Set();
 const drillKey = (s) => words(s).join(' ');
 const drillAllowed = (sentence, turnNo) => turnNo > drillDoneAt && !drillDone.has(drillKey(sentence));
 
-/* Live calls: the app, not the model, decides when a sentence is being practiced.
-   userTurnNo counts your finished utterances; lastAiTurn remembers the partner's last full reply. */
+/* Live calls: the app, not the model, decides when a sentence is being practiced and when it ends.
+   Only "OK, continue" ends it. userTurnNo counts your finished utterances. */
 let userTurnNo = 0;
 let lastAiTurn = { text: '', userTurn: -1 };
-function mentions(text, sentence) {
-  const want = words(sentence); if (!want.length) return false;
-  const have = new Set(words(text));
-  return want.filter((w) => have.has(w)).length / want.length >= 0.6;
+let aiQuestions = []; // [{ userTurn, q }]: the partner's questions and how many of your turns came before each
+let myBubbles = {};   // userTurnNo -> your bubble, to mark the wrong one
+function questionBefore(turnNo) {
+  for (let i = aiQuestions.length - 1; i >= 0; i--) if (aiQuestions[i].userTurn < turnNo && aiQuestions[i].q) return aiQuestions[i].q;
+  return '';
 }
+function mentions(text, sentence, need = 0.6) {
+  const want = words(sentence); if (!want.length) return true;
+  const have = new Set(words(text));
+  return want.filter((w) => have.has(w)).length / want.length >= need;
+}
+/* The partner did its job only if it gave the sentence again and asked its question again. */
+function partnerStayed(text, d) { return mentions(text, d.sentence) && (!d.question || mentions(text, d.question, 0.5)); }
 /* Interrupt the partner and send it a note, in either live engine. */
 function liveInterrupt(note) {
   if (gl) { cutPlayback(gl); geminiSay(note); return true; }
@@ -731,50 +762,63 @@ function liveInterrupt(note) {
   }
   return false;
 }
-function remindDrill(first) {
-  const d = talkDrill; if (!d || d.reminders >= 4) return;
-  d.reminders++;
-  liveInterrupt(first
-    ? `Wait, correct me first. I should say: "${d.sentence}". Say that sentence slowly and clearly, ask me to repeat it, and keep practicing it with me until I tap continue.`
-    : `We are still practicing "${d.sentence}". Do not move on. Tell me briefly what was wrong in my last try, say the sentence again, and ask me to repeat it.`);
+function drillNote(d, first) {
+  const ask = d.question ? ` Then ask me your question again: "${d.question}"` : '';
+  return first
+    ? `Wait, correct me first. I should say: "${d.sentence}". Say that sentence slowly, ask me to repeat it.${ask} The mistake stays open until I tap continue.`
+    : `My mistake is still open, so do not move on and do not ask anything new. Briefly correct my last try if needed, say "${d.sentence}" again and ask me to repeat it.${ask}`;
 }
-/* The checker found a mistake in what you just said: pin the corrected sentence and make sure the partner works on it. */
+function remindDrill(first) {
+  const d = talkDrill; if (!d) return;
+  if (d.remindedTurn === userTurnNo && d.reminders) return; // at most one reminder per thing you say
+  d.remindedTurn = userTurnNo; d.reminders++;
+  liveInterrupt(drillNote(d, first));
+}
+/* The checker found a mistake in what you just said: pin it until you tap OK, continue. */
 function onLiveMistake(sentence, turnNo) {
   if (!practiceLoop() || !(rt || gl) || !sentence) return;
   if (!drillAllowed(sentence, turnNo)) return; // a check that finished after you tapped OK, continue
-  if (talkDrill && talkDrill.sentence !== sentence && talkDrill.tries) return; // already practicing another sentence
-  setTalkDrill(sentence);
-  if (lastAiTurn.userTurn === turnNo) { if (!mentions(lastAiTurn.text, sentence)) remindDrill(true); }
+  if (talkDrill) return; // a mistake is already open; it stays the one being practiced
+  setTalkDrill(sentence, null, questionBefore(turnNo), myBubbles[turnNo]);
+  if (lastAiTurn.userTurn === turnNo) { if (!partnerStayed(lastAiTurn.text, talkDrill)) remindDrill(true); }
   else talkDrill.checkFirst = true; // judge the partner's reply when it finishes
 }
 /* A live partner turn finished. */
 function liveTalkTurnDone(text) {
   lastAiTurn = { text, userTurn: userTurnNo };
+  const q = lastQuestion(text);
+  if (q) { aiQuestions.push({ userTurn: userTurnNo, q }); aiQuestions = aiQuestions.slice(-20); }
   if (!practiceLoop()) return;
-  const d = parseDrill(text);
-  if (d && drillAllowed(d.sentence, userTurnNo)) { setTalkDrill(d.sentence); talkDrill.checkFirst = false; talkDrill.awaitingReply = false; return; }
-  if (!talkDrill) return;
-  if (talkDrill.checkFirst) { talkDrill.checkFirst = false; if (!mentions(text, talkDrill.sentence)) remindDrill(true); return; }
-  if (talkDrill.awaitingReply) { talkDrill.awaitingReply = false; if (!mentions(text, talkDrill.sentence)) remindDrill(false); }
+  if (!talkDrill) {
+    // the partner corrected you by itself: that opens the mistake too
+    const d = parseDrill(text);
+    if (d && drillAllowed(d.sentence, userTurnNo)) setTalkDrill(d.sentence, null, questionBefore(userTurnNo), myBubbles[userTurnNo]);
+    return;
+  }
+  // while a mistake is open the model cannot swap it for another sentence; only OK, continue closes it
+  if (talkDrill.checkFirst) { talkDrill.checkFirst = false; if (!partnerStayed(text, talkDrill)) remindDrill(true); return; }
+  if (talkDrill.awaitingReply) { talkDrill.awaitingReply = false; if (!partnerStayed(text, talkDrill)) remindDrill(false); }
 }
-/* What you said while a sentence is pinned is checked against it instead of being corrected again. */
-function liveTalkUserSaid(text) {
+/* What you said while a mistake is open is checked against the sentence instead of being corrected again. */
+function liveTalkUserSaid(text, bubbleEl) {
   if (!text) return false;
   userTurnNo++;
+  if (bubbleEl) { myBubbles[userTurnNo] = bubbleEl; delete myBubbles[userTurnNo - 30]; }
   if (!talkDrill) return false;
   talkDrill.tries++; talkDrill.awaitingReply = true;
+  if (bubbleEl) bubbleEl.classList.add('practice-try');
   attemptCard($('log'), talkDrill.sentence, text, talkDrill.tries);
   return true;
 }
 function sayDrillAgain() {
   const d = talkDrill; if (!d) return;
-  if (rt || gl) { liveInterrupt(`Please say "${d.sentence}" again, slowly and clearly, then let me repeat it.`); return; }
-  stopSpeaking(); speak(d.sentence, Number(S.rate) * 0.9).then(() => continueHandsFree());
+  if (rt || gl) { liveInterrupt(`Please say "${d.sentence}" again, slowly and clearly, and let me repeat it.` + (d.question ? ` Then ask me again: "${d.question}"` : '')); return; }
+  stopSpeaking(); speak(d.sentence + (d.question ? ' ' + d.question : ''), Number(S.rate) * 0.9).then(() => continueHandsFree());
 }
 async function continueFromDrill() {
-  const d = talkDrill; clearTalkDrill();
+  const d = talkDrill; clearTalkDrill(true);
   drillDoneAt = userTurnNo; if (d) drillDone.add(drillKey(d.sentence));
-  const msg = "OK, let's continue the conversation. Do not go back to that sentence.";
+  const msg = "OK, my mistake is closed. Let's continue the conversation. Do not go back to that sentence.";
   if (rt || gl) { liveInterrupt(msg); return; }
   if (d && d.reply) { bubble($('log'), 'ai', d.reply, { play: true }); await speak(d.reply); continueHandsFree(); }
 }
@@ -877,7 +921,7 @@ let rt = null;
 function rtInstructions() {
   const base = prompt('liveConversation', openTalkVars());
   if (!practiceLoop()) return base;
-  return base + ' When you ask the learner to say a corrected sentence or word again, end that turn with exactly: "Repeat after me: <the corrected sentence or word>". Use this pattern for every new try. Do not continue the conversation until the learner says "OK, let\'s continue".';
+  return base + ' When you correct a mistake, say the corrected sentence and end with exactly: "Repeat after me: <the corrected sentence>", then ask your last question again. From then on the mistake is open: after everything the learner says, briefly correct it if needed, say the same corrected sentence again, ask them to repeat it, and ask your last question again. While a mistake is open do not ask anything new, do not change the topic and do not start practicing another sentence. Only when the learner says "OK, my mistake is closed" do you continue the conversation normally.';
 }
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged(note) {
@@ -1022,7 +1066,7 @@ function onRtEvent(ev) {
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
-    if (text && !liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+    if (text && !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
   } else if (t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta') {
     const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown(rtLog()); }
   } else if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
@@ -1074,7 +1118,7 @@ function sendTypedRealtime(text) {
   bubble($('log'), 'me', text, { typed: true });
   st.dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }));
   st.dc.send(JSON.stringify({ type: 'response.create' }));
-  if (!liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
+  if (!liveTalkUserSaid(text, $('log').lastElementChild) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
   return true;
 }
 
@@ -1606,7 +1650,7 @@ function init() {
       emptyState(); setStatus('Practice deleted.');
       return;
     }
-    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); drillDone.clear(); emptyState();
+    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); drillDone.clear(); aiQuestions = []; myBubbles = {}; emptyState();
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
   $('log').addEventListener('click', (e) => {

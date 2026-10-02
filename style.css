@@ -448,3 +448,15 @@ dialog#guide {
 .drill-bar #drillRepeat { background: var(--panel); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, transparent); }
 .drill-bar .db-text { flex: 1 1 100%; }
 .db-actions { margin-left: auto; }
+
+/* an open mistake is amber until you tap OK, continue; then it turns green */
+.drill-bar { background: var(--fix-soft); border-color: color-mix(in srgb, var(--fix) 45%, transparent); }
+.drill-bar .db-label { color: var(--fix); }
+.drill-bar .db-q { margin: 4px 0 0; font: 500 14.5px/1.35 var(--body, inherit); color: var(--muted); }
+.drill-bar #drillRepeat { background: var(--panel); color: var(--fix); border: 1px solid color-mix(in srgb, var(--fix) 45%, transparent); }
+.drill-bar #drillContinue { background: var(--good); color: #fff; }
+.msg.me.practice-pending { box-shadow: 0 0 0 2px var(--fix); }
+.msg.me.practice-pending .who::after { content: " \00b7  open mistake"; color: var(--fix); font-weight: 700; }
+.msg.me.practice-try { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--fix) 70%, transparent); }
+.msg.me.practice-done { box-shadow: 0 0 0 2px var(--good); }
+.msg.me.practice-done .who::after { content: " \00b7  practiced \2713"; color: var(--good); font-weight: 700; }

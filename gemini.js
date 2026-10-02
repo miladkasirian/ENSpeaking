@@ -308,7 +308,7 @@ function finishMyTurn(st) {
   b.classList.remove('pending');
   if (!text) { b.remove(); return; }
   history.push({ role: 'user', content: text }); history = history.slice(-16);
-  if (!liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
   persistChat();
 }
 function onGeminiMsg(st, msg) {
@@ -426,6 +426,6 @@ function sendTypedGemini(text) {
   const b = bubble($('log'), 'me', text, { typed: true });
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   st.ws.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true } }));
-  if (!liveTalkUserSaid(text) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
   return true;
 }

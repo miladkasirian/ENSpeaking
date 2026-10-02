@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.14.1">
+<link rel="stylesheet" href="style.css?v=2.15.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -64,7 +64,7 @@
     <div id="talkView" class="view">
       <div id="log" class="log" aria-live="polite"></div>
       <div id="drillBar" class="drill-bar" hidden>
-        <div class="db-text"><span class="db-label">Say it again</span><p id="drillText"></p></div>
+        <div class="db-text"><span class="db-label">Open mistake: say it again until you tap OK</span><p id="drillText"></p><p id="drillQuestion" class="db-q" hidden></p></div>
         <div class="db-actions">
           <button class="pill-btn" id="drillRepeat">Say it again</button>
           <button class="pill-btn strong" id="drillContinue">OK, continue</button>
@@ -275,7 +275,7 @@
   </div>
 </dialog>
 
-<script src="gemini.js?v=2.14.1"></script>
-<script src="app.js?v=2.14.1"></script>
+<script src="gemini.js?v=2.15.0"></script>
+<script src="app.js?v=2.15.0"></script>
 </body>
 </html>
