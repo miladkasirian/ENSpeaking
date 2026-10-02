@@ -354,6 +354,7 @@ function onMicChunk(st, f32) {
   let sum = 0;
   for (let i = 0; i < st.q.length; i++) { const v = Math.max(-1, Math.min(1, st.q[i])); sum += v * v; pcm.setInt16(i * 2, v * 0x7fff, true); }
   const rms = Math.sqrt(sum / st.q.length);
+  st.lastRms = rms; // for the audio-levels readout
   const chunk = bytesToB64(new Uint8Array(pcm.buffer)); const sec = st.q.length / 16000;
   st.q = [];
   const send = (data, s = sec) => { st.sentSec += s; st.ws.send(JSON.stringify({ realtimeInput: { audio: { data, mimeType: 'audio/pcm;rate=16000' } } })); };
@@ -373,9 +374,11 @@ function onMicChunk(st, f32) {
   if (st.flushRing) { st.flushRing = false; resume(true); return; } // you started talking over the partner
   if (S.saveData) {
     // send only while you speak (plus 1 s after, so Gemini hears you finish)
-    const now = st.ctx.currentTime; const floor = st.noiseFloor || 0.01;
-    const voice = rms > Math.max(0.008, floor * 2); // sensitive, so the start of your words goes out at once
-    if (voice) st.lastVoice = now; else st.noiseFloor = floor * 0.95 + rms * 0.05;
+    const now = st.ctx.currentTime; const floor = st.noiseFloor ?? 0.001;
+    // very sensitive, so even a soft voice goes out at once (with AI noise removal the background is near zero)
+    const voice = rms > Math.max(S.aiNoise ? 0.002 : 0.006, floor * 2);
+    // background level: follows a quieter room at once, a louder one only slowly
+    if (voice) st.lastVoice = now; else st.noiseFloor = rms < floor ? rms : floor * 0.97 + rms * 0.03;
     if (!st.lastVoice || now - st.lastVoice > 1.0) { pause(); return; }
     if (st.paused) { resume(true); return; }
   } else if (st.paused) { st.paused = false; }
@@ -401,11 +404,13 @@ function echoGate(st, rms, chunk) {
   //    you can talk as softly as you like, even over the partner.
   if (t < 0.6) st.echoPeak = Math.max(st.echoPeak, rms);
   else if (!st.echoChecked) {
-    st.echoChecked = true; st.aecOk = st.echoPeak < 0.012;
+    // Only when practically nothing of the partner reaches the mic (headphones / AirPods) is the mic left open.
+    // With the phone speaker some echo always arrives, often louder than a soft voice, so the mic is held back.
+    st.echoChecked = true; st.aecOk = st.echoPeak < 0.003;
     if (!st.aecReported) {
       st.aecReported = true;
-      setStatus(st.aecOk ? 'Echo cancellation works on this phone: you can talk softly, even while the partner speaks.'
-        : 'This phone does not cancel the partner\'s echo from the speaker. To cut in while it speaks, tap the hand button (or use headphones).');
+      setStatus(st.aecOk ? 'Headphones: you can talk softly, even while the partner speaks.'
+        : 'Phone speaker: to cut in while the partner speaks, tap the hand button. When it is quiet, just talk.');
     }
   }
   if (st.echoChecked && st.aecOk) return true;

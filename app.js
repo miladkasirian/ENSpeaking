@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.6 (2026-10-02)';
+const VERSION = '2.19.7 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true, aiNoise: true,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true, aiNoise: true, showLevels: false,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -1586,7 +1586,7 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData', 'aiNoise'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData', 'aiNoise', 'showLevels'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
@@ -1807,6 +1807,15 @@ function init() {
   $('openSettings').addEventListener('click', openSettings);
   $('spendBtn').addEventListener('click', () => { openSettings(); });
   $('engineChip').addEventListener('click', () => { openSettings(); setTimeout(() => $('engineGroup').scrollIntoView({ block: 'start' }), 50); });
+  // Audio levels readout (setting "showLevels"): real numbers from the phone, to tune the echo handling.
+  setInterval(() => {
+    const box = $('levels'); const st = gl;
+    if (!S.showLevels || !st || !st.ctx) { box.hidden = true; return; }
+    const now = st.ctx.currentTime; const talking = st.playT && now < st.playT + 1.2;
+    const open = !talking || now < (st.gateOpenUntil || 0) || (st.echoChecked && st.aecOk);
+    box.hidden = false;
+    box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} · echo peak ${(st.echoPeak || 0).toFixed(3)} · partner ${talking ? 'speaking' : 'quiet'} · mic ${open ? (S.saveData && st.paused ? 'waiting for voice' : 'SENT') : 'held back'}${st.loopback ? ' · echo path on' : ''}${S.aiNoise && rnnoiseCtx ? ' · AI noise on' : ''}`;
+  }, 250);
   $('volume').value = S.volume; applyVolume();
   $('cutIn').addEventListener('click', () => {
     if (gl) cutInGemini();
