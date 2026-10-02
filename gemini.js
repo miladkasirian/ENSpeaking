@@ -216,7 +216,7 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     tap.port.onmessage = (e) => onMicChunk(st, e.data);
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
-    st.out = ctx.createGain();
+    st.out = ctx.createGain(); st.out.gain.value = volGain();
     if (st.outDest && st.outEl && !st.outEl.paused) st.out.connect(st.outDest); else st.out.connect(ctx.destination);
     const an = ctx.createAnalyser(); an.fftSize = 512; st.out.connect(an);
     const buf = new Float32Array(an.fftSize); let alive = true;

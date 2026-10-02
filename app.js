@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.1 (2026-10-02)';
+const VERSION = '2.18.2 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -42,7 +42,7 @@ const DEFAULTS = {
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, bargeIn: false, saveData: true,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
-  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', speed: 2, rate: 0.85,
+  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', speed: 2, rate: 0.85, volume: 100,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
@@ -373,7 +373,7 @@ function speakDevice(text, rate) {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
-    u.rate = rate;
+    u.rate = rate; u.volume = Math.min(1, volGain());
     let done = false;
     const finish = () => { if (!done) { done = true; clearTimeout(t); resolve(); } };
     const t = setTimeout(finish, 2500 + (text.length * 85) / rate); // Safari sometimes skips onend
@@ -397,12 +397,13 @@ async function speakOpenAI(text, rate) {
       if (isFinite(audioEl.duration)) addCost('tts', (audioEl.duration / 60) * price('tts', TTS_MODEL).min, { ttsSec: audioEl.duration });
     };
     audioEl.src = url; audioEl.playbackRate = rate;
-    audioEl.play().catch(() => { setStatus('Tap the replay button to hear the answer.'); finish(); });
+    applyVolume();
+    audioEl.play().catch(() => { setStatus('Tap Play again under the message to hear the answer.'); finish(); });
   });
 }
 async function speak(text, rate = Number(S.rate)) {
   if (!text) return;
-  lastSpoken = text; $('replay').disabled = false;
+  lastSpoken = text;
   setPhase('speak'); setStatus('Speaking. Tap the circle to answer straight away.');
   try {
     if (S.voiceEngine === 'openai') await speakOpenAI(text, rate); else await speakDevice(text, rate);
@@ -1045,7 +1046,7 @@ async function startCall(kind = 'talk') {
 
     const pc = new RTCPeerConnection(); state.pc = pc;
     const audio = document.createElement('audio'); audio.autoplay = true; audio.setAttribute('playsinline', ''); state.audio = audio;
-    document.body.appendChild(audio); audio.style.display = 'none';
+    document.body.appendChild(audio); audio.style.display = 'none'; applyVolume();
     pc.ontrack = (e) => {
       audio.srcObject = e.streams[0];
       const stop = meter(e.streams[0], (rms) => { levels.ai = Math.min(1, rms * 9); });
@@ -1372,7 +1373,18 @@ function idleStatus() {
   setStatus(haveKey ? (usesCall() ? (mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle to start. The coach says a sentence, you repeat it.') : 'Tap the circle and speak, or type below.')
     : `Start by adding your ${S.provider === 'gemini' ? 'Gemini' : 'OpenAI'} key in Settings.`);
 }
-function syncHandsFree() { $('handsFreeBtn').setAttribute('aria-pressed', S.handsFree ? 'true' : 'false'); $('handsFree').checked = !!S.handsFree; }
+function syncHandsFree() { $('handsFree').checked = !!S.handsFree; }
+/* The partner's volume inside the app (0 = silent). On iPhone the side buttons cannot go fully silent
+   while the microphone is in use, so this is the way to turn it all the way down. */
+const volGain = () => { const v = Math.max(0, Math.min(100, Number(S.volume))) / 100; return v * v; }; // feels even across the range
+function applyVolume() {
+  const g = volGain();
+  if (gl && gl.out) { try { gl.out.gain.value = g; } catch { /* ignore */ } }
+  [audioEl, rt && rt.audio, gl && gl.outEl].forEach((a) => { if (a) { try { a.volume = Math.min(1, g); a.muted = g === 0; } catch { /* ignore */ } } });
+  if (gl && gl.outEl) { gl.outEl.muted = false; gl.outEl.volume = 1; } // Gemini is already turned down by its gain
+  const muted = g === 0; $('volX').hidden = !muted; $('volWaves').hidden = muted;
+  $('volVal').textContent = Math.round(S.volume) + '%';
+}
 
 async function checkKey() {
   const hint = $('keyHint');
@@ -1707,11 +1719,11 @@ function init() {
   $('openSettings').addEventListener('click', openSettings);
   $('spendBtn').addEventListener('click', () => { openSettings(); });
   $('engineChip').addEventListener('click', () => { openSettings(); setTimeout(() => $('engineGroup').scrollIntoView({ block: 'start' }), 50); });
-  $('replay').addEventListener('click', () => { if (lastSpoken) { unlockAudio(); stopSpeaking(); speak(lastSpoken); } });
-  $('handsFreeBtn').addEventListener('click', () => {
-    S.handsFree = !S.handsFree; saveSettings(); syncHandsFree(); handsFreeCancelled = !S.handsFree;
-    setStatus(S.handsFree ? 'Hands-free is on: I listen again after each answer.' : 'Hands-free is off.');
-  });
+  $('volume').value = S.volume; applyVolume();
+  $('volBtn').addEventListener('click', (e) => { e.stopPropagation(); const open = $('volPop').hidden; $('volPop').hidden = !open; $('volBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); });
+  $('volPop').addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => { if (!$('volPop').hidden) { $('volPop').hidden = true; $('volBtn').setAttribute('aria-expanded', 'false'); } });
+  $('volume').addEventListener('input', () => { S.volume = Number($('volume').value); applyVolume(); saveSettings(); });
   document.querySelectorAll('.seg').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
   $('drillContinue').addEventListener('click', () => { unlockAudio(); stopSpeaking(); continueFromDrill(); });
   $('drillRepeat').addEventListener('click', () => { unlockAudio(); sayDrillAgain(); });

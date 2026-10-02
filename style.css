@@ -473,3 +473,14 @@ dialog#guide {
 .doc-bar svg { flex: none; color: var(--ai); }
 .doc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .doc-bar select { flex: 0 1 55%; min-width: 0; font-size: 16px; padding: 4px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+
+/* partner volume (replaces the replay and hands-free buttons) */
+.side-btn.spacer { visibility: hidden; }
+.vol-wrap { position: relative; }
+#volBtn[aria-expanded="true"] { color: var(--ai); border-color: var(--ai); }
+.vol-pop {
+  position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 5; display: flex; align-items: center; gap: 10px;
+  width: 230px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow);
+}
+.vol-pop input { flex: 1; min-width: 0; }
+.vol-pop b { font: 650 14px/1 var(--display); min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
