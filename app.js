@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.8 (2026-10-02)';
+const VERSION = '2.18.9 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -42,7 +42,7 @@ const DEFAULTS = {
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
-  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', speed: 2, rate: 0.85, volume: 100,
+  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'general', speed: 2, rate: 0.85, volume: 100,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
@@ -171,10 +171,10 @@ async function keepScreenOn(on) {
    every call and with every settings change. */
 function paceRequest() {
   return ['', 'Please speak very slowly with me, word by word, with short pauses, for the whole conversation.',
-    'Please speak slowly with me for the whole conversation.', 'Please speak at a normal, natural pace with me.',
-    'You can speak a bit faster than normal with me, fluently, like a native speaker.', 'Please speak fast and fluently with me, at full native speed, like an American talking with a friend.'][S.speed] || '';
+    'Please speak slowly with me for the whole conversation.', 'Talk to me casually at a normal pace, like a friend, without pausing between sentences.',
+    'Talk to me casually and a bit faster, like a native speaker, in one smooth flow without pauses.', 'Talk to me fast and casually, at full native speed, like an American chatting with a friend, no pauses.'][S.speed] || '';
 }
-const withPace = (text) => (paceRequest() ? text + ' ' + paceRequest() : text);
+const withPace = (text) => [text, paceRequest(), ACCENT_ASK[S.accent] || ''].filter(Boolean).join(' ');
 function setPhase(p) {
   phase = p;
   keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
@@ -582,7 +582,7 @@ function tutorRules() {
 /* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
 function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
-  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${SOUND_NATURAL}`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${soundNatural()} ${accentRule()}`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
   const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
@@ -590,7 +590,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + SOUND_NATURAL + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -686,13 +686,30 @@ function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra
 /* Live voices cannot be sped up without changing pitch, so the speed setting is passed as an instruction,
    worded like a learner asking "speak slowly", which the live models follow well. */
 /* How the partner sounds at every speed: a real American speaking, not text being read out. */
-const SOUND_NATURAL = 'DELIVERY: always sound like a real American talking, not like someone reading text aloud: fluent, smooth and connected, with natural rhythm, stress and intonation, contractions, and short natural pauses only where a speaker would breathe. Say your words as spoken English, not as written sentences.';
+/* How the partner sounds: casual, spoken American. From normal speed up: no reading pauses at all. */
+function soundNatural() {
+  const base = 'DELIVERY: talk casually, the way Americans really talk with a friend, not like someone reading text: relaxed everyday spoken English with contractions, linked words and natural reductions (gonna, wanna, kinda, gotta, y\'know), and common casual phrases. Keep your words natural for the learner\'s level.';
+  if (S.speed <= 2) return base + ' Because the learner asked for a slow pace, short pauses between sentences are fine, but still sound like casual talk.';
+  return base + ' Keep talking in one smooth flow: no pauses between sentences, no breaths or gaps in the middle of a turn, run your sentences together the way a relaxed native speaker does.' +
+    (S.speed >= 4 ? ' Speak quickly and keep the energy up.' : '');
+}
+/* Accents for the live voice. */
+const ACCENTS = {
+  general: '',
+  boston: 'ACCENT: speak with a Boston accent: drop the r after vowels ("pahk the cah", "wicked smaht"), broad a, and use Boston words like "wicked" now and then.',
+  texas: 'ACCENT: speak with a Texas accent: a friendly Southern drawl with stretched vowels ("y\'all", "fixin\' to", "might could") but keep the speaking speed the learner chose.',
+  california: 'ACCENT: speak with a laid-back California accent: relaxed West Coast vowels and rhythm, casual words like "dude", "totally", "super" and "like" now and then.',
+  newyork: 'ACCENT: speak with a New York City accent: dropped r after vowels, "cawfee" and "tawk" vowels, quick and direct delivery, NYC expressions now and then.',
+  florida: 'ACCENT: speak with a South Florida (Miami) accent: relaxed rhythm with a light Spanish-influenced lilt, Miami expressions like "bro" now and then.',
+};
+const ACCENT_ASK = { general: '', boston: 'Talk to me with a Boston accent.', texas: 'Talk to me with a Texas accent.', california: 'Talk to me with a California accent.', newyork: 'Talk to me with a New York accent.', florida: 'Talk to me with a South Florida accent.' };
+const accentRule = () => ACCENTS[S.accent] || '';
 function speakingPace() {
   return [
     '',
     'SPEED: speak VERY slowly in every turn, as if the learner just asked "please speak very slowly": clearly pronounce every word and pause briefly between phrases and sentences.',
     'SPEED: speak slowly in every turn, as if the learner just asked "please speak slowly": clear words and a short pause between sentences.',
-    'SPEED: speak at a natural, normal pace, clearly.',
+    'SPEED: speak at a natural, normal conversational pace.',
     'SPEED: speak a little faster than normal in every turn, like a fluent native speaker in a relaxed chat: smooth, connected speech, words linked together, natural reductions (gonna, wanna, kinda) where an American would use them.',
     'SPEED: speak fast in every turn, at the full natural speed of an American talking with a friend: smooth, connected, flowing speech with linked words, natural reductions (gonna, wanna, kinda) and relaxed intonation. Never sound like you are reading.',
   ][S.speed] || 'Speak clearly, at a natural pace.';
@@ -1522,7 +1539,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'accent', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1531,7 +1548,7 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
-      if (['level', 'explainLang'].includes(id)) liveSettingsChanged();
+      if (['level', 'explainLang', 'accent'].includes(id)) liveSettingsChanged();
     });
   });
   ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData'].forEach((id) => {

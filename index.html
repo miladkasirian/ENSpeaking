@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.18.8">
+<link rel="stylesheet" href="style.css?v=2.18.9">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -245,6 +245,8 @@
         <label class="field"><span>Speaking speed <b id="rateVal">2: Slow</b></span><input id="rate" type="range" min="1" max="5" step="1" value="2" list="speedMarks">
           <datalist id="speedMarks"><option value="1"></option><option value="2"></option><option value="3"></option><option value="4"></option><option value="5"></option></datalist>
           <span class="scale-ends"><span>Very slow</span><span>Very fast</span></span></label>
+        <label class="field"><span>Accent (live calls)</span>
+          <select id="accent"><option value="general">General American</option><option value="boston">Boston</option><option value="texas">Texas</option><option value="california">California</option><option value="newyork">New York</option><option value="florida">Florida (Miami)</option></select></label>
       </div>
       <label class="check"><input id="sayCorrections" type="checkbox"> Say corrections out loud before replying (also in live calls)</label>
       <label class="check"><input id="keepMic" type="checkbox"> Turn by turn: keep the microphone ready for 20 seconds between recordings (asks for permission less often). Live calls always turn the mic off when they end.</label>
@@ -292,8 +294,8 @@
   </div>
 </dialog>
 
-<script src="doc.js?v=2.18.8"></script>
-<script src="gemini.js?v=2.18.8"></script>
-<script src="app.js?v=2.18.8"></script>
+<script src="doc.js?v=2.18.9"></script>
+<script src="gemini.js?v=2.18.9"></script>
+<script src="app.js?v=2.18.9"></script>
 </body>
 </html>
