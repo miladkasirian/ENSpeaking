@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.2 (2026-10-02)';
+const VERSION = '2.18.3 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -155,8 +155,20 @@ const levels = { mic: 0, ai: 0 };
 
 /* ---------- small UI helpers ---------- */
 function setStatus(text, isErr = false) { const s = $('status'); s.textContent = text; s.classList.toggle('err', isErr); }
+/* Keep the screen on during a live call: a locked iPhone stops the page and the microphone,
+   so the call would end. (Locking it yourself still ends the call; iOS does not let web apps run locked.) */
+let wakeLock = null;
+async function keepScreenOn(on) {
+  try {
+    if (on && !wakeLock && 'wakeLock' in navigator && !document.hidden) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { wakeLock = null; }
+}
 function setPhase(p) {
   phase = p;
+  keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
   const mic = $('mic');
   const glyph = { idle: 'mic', rec: 'stop', think: 'none', speak: 'mic', connecting: 'none', call: 'call' }[p];
   mic.dataset.glyph = (p === 'idle' && usesCall()) ? 'call' : glyph;
