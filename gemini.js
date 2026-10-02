@@ -277,7 +277,8 @@ function geminiSetup(st) {
     model: 'models/' + S.gLiveModel,
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: S.gVoice } } } },
     systemInstruction: { parts: [{ text: (st.kind === 'repeat' ? repeatInstructions() : rtInstructions()) + st.carry }] },
-    inputAudioTranscription: st.basic ? {} : { mode: 'VERBATIM' },
+    // Gemini Live itself writes down what you say; it is told to use only English (or English and Persian)
+    inputAudioTranscription: st.basic ? {} : st.noLang ? { mode: 'VERBATIM' } : { mode: 'VERBATIM', languageCodes: S.langs === 'en' ? ['en-US'] : ['en-US', 'fa-IR'] },
     outputAudioTranscription: {},
   };
   if (!st.basic) {
@@ -309,7 +310,8 @@ function openGeminiSocket(st) {
     const why = e.reason ? ': ' + e.reason : ` (code ${e.code})`;
     if (!st.setupDone) {
       if (st.t0) { if (recoverGemini(st)) return; } // the call had been running: start a fresh session instead
-      else if (!st.basic) { st.basic = true; openGeminiSocket(st); return; } // first connect: retry with the simplest setup
+      else if (!st.noLang) { st.noLang = true; openGeminiSocket(st); return; } // first connect refused: try without the language list
+      else if (!st.basic) { st.basic = true; openGeminiSocket(st); return; } // then with the simplest setup
       endGemini(st.t0 ? 'Lost the connection to Gemini' + why + '. Tap the circle to start again; the chat is kept.'
         : 'Gemini refused the call' + why + '. Check the Gemini key and the Live model in Settings.', true);
       return;
@@ -373,6 +375,7 @@ function onMicChunk(st, f32) {
    "Talk over the partner" (headphones) turns the gate off. */
 const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
+  if (S.micDuringReply === 'open') return true; // setting: always send the mic, even while the partner speaks
   const now = st.ctx.currentTime;
   // the voice comes out of the speaker a bit later than scheduled (the echo-cancellation path and the
   // iPhone's audio output add delay), so the last word would leak back without this margin
