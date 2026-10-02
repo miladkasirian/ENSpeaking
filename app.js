@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.22.2 (2026-10-02)';
+const VERSION = '2.22.3 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -1096,7 +1096,7 @@ let rt = null;
 function rtInstructions() {
   const base = prompt('liveConversation', openTalkVars()) + '\n' + settingsRule('live') + docBlock();
   if (!practiceLoop()) return base;
-  return base + ' When you correct a mistake, say the corrected sentence and end with exactly: "Repeat after me: <the corrected sentence>", then ask your last question again. From then on the mistake is open: after everything the learner says, briefly correct it if needed, say the same corrected sentence again, ask them to repeat it, and ask your last question again. While a mistake is open do not ask anything new, do not change the topic and do not start practicing another sentence. Only when the learner says "OK, my mistake is closed" do you continue the conversation normally.';
+  return base + ' When you correct a mistake, say the corrected sentence and end with exactly: "Repeat after me: <the corrected sentence>", then ask your last question again. From then on the mistake is open: after everything the learner says, briefly correct it if needed, say the same corrected sentence again, ask them to repeat it, and ask your last question again. While a mistake is open do not ask anything new, do not change the topic and do not start practicing another sentence. Only when the learner says "OK, my mistake is closed" do you continue the conversation normally. Be patient while the learner repeats a sentence: they may stop for a moment in the middle to look at it or to think. Wait until they have clearly finished the whole sentence before you answer; never cut in after a short pause.';
 }
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged(note) {

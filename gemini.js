@@ -287,7 +287,11 @@ function geminiSetup(st) {
     setup.contextWindowCompression = { slidingWindow: {} };
     // Gemini's speech detection at its most sensitive: soft voices and short sounds like "uh-huh" count,
     // and your turn ends quickly after you stop (less delay)
-    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 20, silenceDurationMs: 500 } };
+    // How long you can pause before Gemini decides you have finished: in Practice you are often reading a
+    // sentence back and stop for a moment in the middle, so it waits longer there (1.6 s) than in Open talk (0.5 s).
+    const practice = st.kind === 'repeat' || (typeof practiceLoop === 'function' && practiceLoop());
+    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
+      endOfSpeechSensitivity: practice ? 'END_SENSITIVITY_LOW' : 'END_SENSITIVITY_HIGH', prefixPaddingMs: 20, silenceDurationMs: practice ? 1600 : 500 } };
   }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
