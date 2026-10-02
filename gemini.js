@@ -212,7 +212,12 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     const src = ctx.createMediaStreamSource(st.stream);
     const tap = new AudioWorkletNode(ctx, 'pcm-tap');
     const mute = ctx.createGain(); mute.gain.value = 0;
-    src.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
+    // Noise filter before anything is sent or transcribed: speech lives between about 100 Hz and 4 kHz,
+    // so low rumble/hum (fans, traffic, AC) and high hiss are cut. The browser's own noise suppression is also on.
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110; hp.Q.value = 0.7;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4000; lp.Q.value = 0.7;
+    src.connect(hp); hp.connect(lp); lp.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
+    st.stops.push(() => { try { hp.disconnect(); lp.disconnect(); } catch { /* ignore */ } });
     tap.port.onmessage = (e) => onMicChunk(st, e.data);
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
@@ -351,7 +356,8 @@ function echoGate(st, rms, chunk) {
   const floor = st.echoFloor || 0.02;
   const learning = now - st.replyStart < 0.4; // start of each reply: only learn the echo level
   // open only for clearly louder speech that lasts (0.16 s), not for a loud moment of the echo
-  if (!learning && rms > Math.max(0.05, floor * 3.5)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 3) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
+  // a short noise (a cough, a cup, a door) must not stop the partner: it takes 0.28 s of clearly louder sound
+  if (!learning && rms > Math.max(0.06, floor * 4)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 7) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
   st.loud = 0;
   st.echoFloor = floor * 0.92 + rms * 0.08; // average echo level during this reply
   return false;
@@ -425,7 +431,11 @@ function onGeminiMsg(st, msg) {
   const sc = msg.serverContent;
   if (!sc) return;
   const log = st.kind === 'repeat' ? $('repeatLog') : $('log');
-  if (sc.interrupted) { cutPlayback(st); st.inReply = false; }
+  if (sc.interrupted) {
+    cutPlayback(st); st.inReply = false;
+    // Gemini stops only when it thinks you started talking; say so, in case it was a noise
+    if (st.kind === 'talk') setStatus('The partner stopped because it heard something. If that was a noise, just say "go on".');
+  }
   if (st.kind === 'repeat' && sc.inputTranscription && sc.inputTranscription.text) {
     st.meText += sc.inputTranscription.text; st.meStarted = true;
     $('status').textContent = 'Hearing: ' + st.meText.trim();

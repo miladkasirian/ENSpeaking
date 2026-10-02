@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.0 (2026-10-02)';
+const VERSION = '2.19.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -44,7 +44,7 @@ const DEFAULTS = {
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', speed: 2, rate: 0.85, volume: 100,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
-  gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
+  gLiveModel: 'gemini-3.8-live', gVoice: 'Charon', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
   provider: 'gemini',
   oaChat: 'gpt-4o-mini', oaStt: 'gpt-4o-mini-transcribe', oaEngine: 'turn',
@@ -75,6 +75,7 @@ if (!S.defaults2) {
   store.set('ens.settings', S);
 }
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
+if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
