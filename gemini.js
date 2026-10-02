@@ -288,10 +288,11 @@ function geminiSetup(st) {
     // Gemini's speech detection at its most sensitive: soft voices and short sounds like "uh-huh" count,
     // and your turn ends quickly after you stop (less delay)
     // How long you can pause before Gemini decides you have finished: in Practice you are often reading a
-    // sentence back and stop for a moment in the middle, so it waits longer there (1.6 s) than in Open talk (0.5 s).
+    // sentence back and stop for a moment in the middle, so it waits longer there (1.6 s) than in Open talk (1.1 s).
+    // Open talk also waits a little, so a short "I... um..." pause does not send half a sentence.
     const practice = st.kind === 'repeat' || (typeof practiceLoop === 'function' && practiceLoop());
     setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',
-      endOfSpeechSensitivity: practice ? 'END_SENSITIVITY_LOW' : 'END_SENSITIVITY_HIGH', prefixPaddingMs: 20, silenceDurationMs: practice ? 1600 : 500 } };
+      endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', prefixPaddingMs: 20, silenceDurationMs: practice ? 1600 : 1100 } };
   }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
@@ -371,7 +372,7 @@ function onMicChunk(st, f32) {
     st.paused = true;
     if (!S.saveData) { send(SILENCE_40MS, 0.04); return; }
     const practice = st.kind === 'repeat' || practiceLoop();
-    const hold = 0.8 + (practice ? 1.6 : 0.5) + 0.3;
+    const hold = 0.8 + (practice ? 1.6 : 1.1) + 0.3;
     if (st.lastVoice && now - st.lastVoice < hold && !(st.playT && now < st.playT)) { send(SILENCE_40MS, 0.04); st.streamEnded = false; return; }
     if (!st.streamEnded) { st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); st.streamEnded = true; }
   };
