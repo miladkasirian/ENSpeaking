@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.20.1 (2026-10-02)';
+const VERSION = '2.21.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, micDuringReply: 'hold',
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -77,7 +77,7 @@ if (!S.defaults2) {
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
 if (!S.defaults6) { S.saveData = true; S.aiNoise = true; S.defaults6 = true; store.set('ens.settings', S); } // data saver and AI noise removal on, applied once
 if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
-S.saveData = false; S.aiNoise = false; // these layers delayed and dropped soft speech; removed
+S.saveData = false; S.aiNoise = false; S.micDuringReply = 'hold'; // these layers delayed and dropped soft speech; removed
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
@@ -1262,9 +1262,9 @@ function onRtEvent(ev) {
     setStatus((ev.error && ev.error.message) || 'Realtime error.', true);
   }
 }
-async function writtenCorrections(text, afterEl) {
+async function writtenCorrections(text, afterEl, turnNoGiven) {
   if (isOpenTalk()) return;
-  const turnNo = userTurnNo;
+  const turnNo = turnNoGiven ?? userTurnNo;
   try {
     const out = await chatJSON([
       { role: 'system', content: [
@@ -1575,7 +1575,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'accent', 'tone', 'langs', 'micDuringReply', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'accent', 'tone', 'langs', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1815,7 +1815,8 @@ function init() {
     const now = st.ctx.currentTime; const talking = st.playT && now < st.playT + 1.2;
     const open = !talking || now < (st.gateOpenUntil || 0) || (st.echoChecked && st.aecOk);
     box.hidden = false;
-    box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} · echo peak ${(st.echoPeak || 0).toFixed(3)} · partner ${talking ? 'speaking' : 'quiet'} · mic ${open ? 'SENT' : 'held back'}`;
+    const voice = st.lastVoice && now - st.lastVoice < 0.8;
+    box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} (voice from ${VOICE_LEVEL.toFixed(3)}) · partner ${talking ? 'speaking' : 'quiet'} · ${!open ? 'held back' : voice ? 'SENDING your voice' : 'waiting for your voice'}`;
   }, 250);
   $('volume').value = S.volume; applyVolume();
   $('cutIn').addEventListener('click', () => {

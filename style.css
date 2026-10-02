@@ -492,3 +492,7 @@ dialog#guide {
 #cutIn:active { background: var(--you-soft); }
 
 .levels { margin-top: 4px; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); text-align: center; max-width: 46ch; }
+
+/* your words while the better transcript is on its way */
+.msg.me.refining .txt { opacity: .7; }
+.msg.me.refining .who::after { content: " · checking..."; color: var(--muted); }

@@ -278,7 +278,7 @@ function geminiSetup(st) {
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: S.gVoice } } } },
     systemInstruction: { parts: [{ text: (st.kind === 'repeat' ? repeatInstructions() : rtInstructions()) + st.carry }] },
     // Gemini Live itself writes down what you say; it is told to use only English (or English and Persian)
-    inputAudioTranscription: st.basic ? {} : st.noLang ? { mode: 'VERBATIM' } : { mode: 'VERBATIM', languageCodes: S.langs === 'en' ? ['en-US'] : ['en-US', 'fa-IR'] },
+    inputAudioTranscription: st.basic ? {} : st.noLang ? { mode: 'VERBATIM' } : { mode: 'VERBATIM', languageCodes: ['en-US'] },
     outputAudioTranscription: {},
   };
   if (!st.basic) {
@@ -359,15 +359,22 @@ function onMicChunk(st, f32) {
   // the last half second, so nothing you say right after the partner stops is lost
   st.ring = (st.ring || []).concat({ t: now, d: chunk }).slice(-12);
   if (!echoGate(st, rms, chunk)) { send(SILENCE_40MS, 0.04); st.paused = true; return; } // partner speaking: its echo stays out
-  if (st.flushRing) { st.flushRing = false; st.ring.forEach((r) => send(r.d, 0.04)); st.ring = []; st.paused = false; return; }
+  const keep = (d) => { st.turnAudio = (st.turnAudio || []).concat(d).slice(-750); send(d, 0.04); };
+  if (st.flushRing) { st.flushRing = false; st.ring.forEach((r) => keep(r.d)); st.ring = []; st.paused = false; return; }
+  // Your voice measures about 0.05 and up at the mic; quieter sound is room noise, which Gemini turned into
+  // odd words ("A", Hindi). So only sound from VOICE_LEVEL up opens the mic; it stays open 0.8 s after your
+  // last word, and the 0.4 s before it opened is sent too, so the start of your words is never cut.
+  if (rms >= VOICE_LEVEL) st.lastVoice = now;
+  const speaking = st.lastVoice && now - st.lastVoice < 0.8;
+  if (!speaking) { send(SILENCE_40MS, 0.04); st.paused = true; return; }
   if (st.paused) {
-    // the partner just finished: send what you said from the moment its voice ended, then go on live
-    const since = (st.playT || 0) + 0.3;
-    st.ring.filter((r) => r.t > since).forEach((r) => send(r.d, 0.04));
+    const since = Math.max((st.playT || 0) + 0.3, now - 0.4);
+    st.ring.filter((r) => r.t > since).forEach((r) => keep(r.d));
     st.ring = []; st.paused = false; return;
   }
-  send(chunk); // everything else goes out raw and at once, however softly you speak
+  keep(chunk);
 }
+const VOICE_LEVEL = 0.04;
 /* Echo gate. On the phone speaker the partner's voice comes back into the mic, and the browser cannot
    cancel it (the voice arrives over a WebSocket, outside the browser's echo canceller). So while the
    partner talks, and 0.6 s after, the mic is replaced by silence, except when you speak clearly louder
@@ -408,6 +415,7 @@ function echoGate(st, rms, chunk) {
 function cutInGemini() {
   const st = gl; if (!st || !st.ctx) return;
   cutPlayback(st); st.dropAudio = true; st.inReply = false;
+  if (st.ai) { st.ai.querySelector('.txt').textContent = st.aiText.trim() + ' ...'; } // the reply stops here on screen too
   st.gateOpenUntil = st.ctx.currentTime + 4; st.flushRing = false; st.ring = [];
   st.ws && st.ws.readyState === 1 && st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
   st.paused = true;
@@ -449,9 +457,40 @@ function finishMyTurn(st) {
   // Only words heard while the partner's voice was coming out of the speaker can be its echo. What you say
   // when it is quiet is always yours, even if the partner repeats your words in its reply.
   if (st.meDuringReply && isEcho(text, [st.aiText, lastAiTurn.text, st.prevAi])) { b.remove(); return; }
-  history.push({ role: 'user', content: text }); history = history.slice(-16);
-  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
+  const entry = { role: 'user', content: text };
+  history.push(entry); history = history.slice(-16);
+  const audio = st.turnAudio || []; st.turnAudio = [];
+  const check = !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn();
+  const turnNo = userTurnNo;
   persistChat();
+  // Gemini Live's own quick transcript is shown at once. Then the same turn's audio is written down again by a
+  // stronger Gemini model (English by default, Persian only for a Persian sentence) and replaces it.
+  if (audio.length >= 6 && gKey) {
+    b.classList.add('refining');
+    betterTranscript(audio).then((better) => {
+      b.classList.remove('refining');
+      if (better && !isNoise(better)) { b.querySelector('.txt').textContent = better; entry.content = better; persistChat(); }
+      if (check) writtenCorrections(entry.content, b, turnNo);
+    }).catch(() => { b.classList.remove('refining'); if (check) writtenCorrections(text, b, turnNo); });
+  } else if (check) writtenCorrections(text, b, turnNo);
+}
+/* The learner's turn, written down by gemini-3.8-flash from the exact audio that was sent to Gemini Live. */
+async function betterTranscript(chunks) {
+  const parts = chunks.map(b64ToBytes); const len = parts.reduce((n, p) => n + p.length, 0);
+  const wav = new DataView(new ArrayBuffer(44 + len)); const w = (o, s) => { for (let i = 0; i < s.length; i++) wav.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); wav.setUint32(4, 36 + len, true); w(8, 'WAVE'); w(12, 'fmt '); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true);
+  wav.setUint32(24, 16000, true); wav.setUint32(28, 32000, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); w(36, 'data'); wav.setUint32(40, len, true);
+  let o = 44; parts.forEach((p) => { new Uint8Array(wav.buffer, o, p.length).set(p); o += p.length; });
+  const lang = S.langs === 'en'
+    ? 'The speaker speaks English. Write English only.'
+    : 'The speaker is an English learner and almost always speaks English: write English. Only if they clearly say a whole sentence in Persian (Farsi), write that sentence in Persian script. Never use any other language or script.';
+  const text = await Promise.race([
+    geminiGenerate('gemini-3.8-flash', 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang,
+      [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(new Uint8Array(wav.buffer)) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
+      300, false, 'stt'),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000)),
+  ]);
+  return String(text || '').replace(/^["\s]+|["\s]+$/g, '').trim();
 }
 function onGeminiMsg(st, msg) {
   if (msg.setupComplete) {
@@ -505,7 +544,7 @@ function onGeminiMsg(st, msg) {
   const hasAudio = parts.some((p) => p.inlineData && p.inlineData.data);
   if ((sc.outputTranscription && sc.outputTranscription.text) || hasAudio) finishMyTurn(st);
   parts.forEach((p) => { if (p.inlineData && p.inlineData.data) playPcm24(st, p.inlineData.data); });
-  if (sc.outputTranscription && sc.outputTranscription.text) {
+  if (sc.outputTranscription && sc.outputTranscription.text && !st.dropAudio) {
     if (!st.ai) { clearEmpty(log); st.ai = bubble(log, 'ai', ''); st.aiText = ''; }
     st.aiText += sc.outputTranscription.text;
     st.ai.querySelector('.txt').textContent = st.aiText.trim();
