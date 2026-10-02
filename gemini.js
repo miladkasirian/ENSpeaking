@@ -239,7 +239,11 @@ function geminiSetup(st) {
     inputAudioTranscription: st.basic ? {} : { mode: 'VERBATIM' },
     outputAudioTranscription: {},
   };
-  if (!st.basic) setup.sessionResumption = st.handle ? { handle: st.handle } : {};
+  if (!st.basic) {
+    setup.sessionResumption = st.handle ? { handle: st.handle } : {};
+    // less eager speech detection, so background noise does not start a turn
+    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', prefixPaddingMs: 300, silenceDurationMs: 800 } };
+  }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
 }
@@ -306,7 +310,7 @@ function finishMyTurn(st) {
   const text = st.meText.trim(); const b = st.me;
   st.me = null; st.meText = '';
   b.classList.remove('pending');
-  if (!text) { b.remove(); return; }
+  if (isNoise(text)) { b.remove(); return; } // only background noise was heard
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
   persistChat();

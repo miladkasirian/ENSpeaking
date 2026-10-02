@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.15.0 (2026-10-02)';
+const VERSION = '2.15.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -652,6 +652,12 @@ function renderFix(log, out) {
   log.appendChild(fix);
   return mistakes;
 }
+/* Background noise often comes back from speech detection as a filler sound or a few symbols. */
+function isNoise(text) {
+  const t = String(text || '').trim();
+  if (!t || !/\p{L}/u.test(t)) return true;
+  return /^(uh+|um+|hm+|mm+|ah+|oh+|eh+|huh|uh-huh|mhm|hmm+)[\s.,!?…-]*$/i.test(t);
+}
 function bubble(log, who, text, opts = {}) {
   const b = el('div', 'msg ' + (who === 'me' ? 'me' : 'ai') + (opts.pending ? ' pending' : ''));
   b.innerHTML = `<div class="who">${who === 'me' ? (opts.typed ? 'You wrote' : 'I heard') : 'Partner'}</div><div class="txt" dir="auto">${esc(text)}</div>`;
@@ -949,11 +955,15 @@ async function startCall(kind = 'talk') {
     const sessionCfg = {
       type: 'realtime', model: S.rtModel, instructions: kind === 'repeat' ? repeatInstructions() : rtInstructions(),
       audio: {
-        input: { transcription: rtTranscription(), turn_detection: { type: 'semantic_vad' } },
+        input: { transcription: rtTranscription(), turn_detection: { type: 'semantic_vad' }, noise_reduction: { type: 'near_field' } },
         output: { voice: S.rtVoice, speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) },
       },
     };
-    const sres = await fetch(API + '/realtime/client_secrets', { method: 'POST', headers: authJSON(), body: JSON.stringify({ session: sessionCfg }) });
+    let sres = await fetch(API + '/realtime/client_secrets', { method: 'POST', headers: authJSON(), body: JSON.stringify({ session: sessionCfg }) });
+    if (sres.status === 400) { // older sessions may not know noise_reduction: try again without it
+      delete sessionCfg.audio.input.noise_reduction;
+      sres = await fetch(API + '/realtime/client_secrets', { method: 'POST', headers: authJSON(), body: JSON.stringify({ session: sessionCfg }) });
+    }
     if (!sres.ok) throw await apiError(sres);
     const sj = await sres.json();
     const ek = sj.value || sj.client_secret?.value;
@@ -1063,6 +1073,7 @@ function onRtEvent(ev) {
     const b = rtBubble(ev.item_id, 'me');
     const text = String(ev.transcript || '').trim();
     if (b) { b.classList.remove('pending'); b.querySelector('.txt').textContent = text || '(not clear)'; }
+    if (isNoise(text)) { if (b) b.remove(); return; } // only background noise was heard
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
