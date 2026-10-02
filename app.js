@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.4 (2026-10-02)';
+const VERSION = '2.18.5 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -441,6 +441,7 @@ function getCtx() {
    It is fully released when the app goes to the background. */
 let micStream = null;
 async function getMic() {
+  clearTimeout(micIdleTimer);
   if (micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live')) {
     micStream.getAudioTracks().forEach((t) => { t.enabled = true; });
     return micStream;
@@ -448,9 +449,17 @@ async function getMic() {
   micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   return micStream;
 }
+/* Live calls always close the mic when they end, so the iPhone's orange mic dot goes off.
+   Between Turn-by-turn recordings the mic is only muted for 20 s (setting "keepMic"), then closed. */
+let micIdleTimer = null;
 function releaseMic(force = false) {
+  clearTimeout(micIdleTimer);
   if (!micStream) return;
-  if (S.keepMic && !force && !document.hidden) { micStream.getAudioTracks().forEach((t) => { t.enabled = false; }); return; }
+  if (S.keepMic && !force && !document.hidden) {
+    micStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+    micIdleTimer = setTimeout(() => { if (!rec && !rt && !gl) releaseMic(true); }, 20000);
+    return;
+  }
   micStream.getTracks().forEach((t) => t.stop()); micStream = null;
 }
 function buzz(ms) { try { if (IS_ANDROID && navigator.vibrate) navigator.vibrate(ms); } catch { /* ignore */ } }
@@ -1097,7 +1106,7 @@ function endCall(msg, isErr = false) {
   st.stopMeters.forEach((f) => f());
   try { st.dc && st.dc.close(); } catch { /* ignore */ }
   try { st.pc && st.pc.close(); } catch { /* ignore */ }
-  if (st.stream) releaseMic();
+  if (st.stream) releaseMic(true);
   if (st.audio) { st.audio.srcObject = null; st.audio.remove(); }
   setAudioSession('playback');
   levels.mic = levels.ai = 0;

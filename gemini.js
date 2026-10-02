@@ -208,7 +208,7 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
       const url = URL.createObjectURL(new Blob([PCM_TAP], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url); workletReady = true;
     }
-    if (gl !== st) { releaseMic(); return; }
+    if (gl !== st) { releaseMic(true); return; }
     const src = ctx.createMediaStreamSource(st.stream);
     const tap = new AudioWorkletNode(ctx, 'pcm-tap');
     const mute = ctx.createGain(); mute.gain.value = 0;
@@ -485,7 +485,7 @@ function endGemini(msg, isErr = false) {
   try { st.ws && st.ws.close(); } catch { /* ignore */ }
   cutPlayback(st);
   st.stops.forEach((f) => f());
-  if (st.stream) releaseMic();
+  if (st.stream) releaseMic(true);
   if (st.outEl) { try { st.outEl.pause(); st.outEl.srcObject = null; st.outEl.remove(); } catch { /* ignore */ } }
   if (st.me || st.meStarted) finishMyTurn(st);
   setAudioSession('playback');
