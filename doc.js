@@ -109,7 +109,12 @@ function finishChapters(list, text) {
   const out = list.map((c, i) => ({ title: c.title.replace(/\s+/g, ' ').trim().slice(0, 120), start: c.start, end: i + 1 < list.length ? list[i + 1].start : text.length }));
   return out.filter((c) => c.end - c.start > 40).length >= 2 ? out : [];
 }
-function chapterText(i) { const c = docState.chapters[i]; return docState.text.slice(c.start, c.end).trim(); }
+function chapterText(i, body) {
+  const c = docState.chapters[i]; const t = docState.text.slice(c.start, c.end).trim();
+  if (!body) return t;
+  const nl = t.indexOf('\n'); // the chapter's own title line is not part of its content
+  return nl > 0 && t.slice(0, nl).replace(/\s+/g, ' ').trim() === c.title ? t.slice(nl + 1).trim() : t;
+}
 
 /* ---------- what the AI gets ---------- */
 function docEngine() { return rt ? 'realtime' : gl ? 'gemini' : (S.engine === 'realtime' ? 'realtime' : S.engine === 'glive' ? 'gemini' : 'chat'); }
@@ -119,7 +124,7 @@ function docOutline() {
   return docState.chapters.map((c, i) => `${i + 1}. ${c.title}`).join('\n');
 }
 /* After the learner picks what to talk about, the partner offers two ways through it. */
-const DOC_WAY = 'Then ask how they want to go through it: "Do you want me to give you a short overview of all of it first, or should I split it into parts and we go through them one by one?" Follow their choice. With parts: name the parts first, then teach one part at a time and move to the next one only when the learner is ready.';
+const DOC_WAY = 'Then ask how they want to go through it: "Do you want me to give you a short overview of all of it first, or should I split it into parts and we go through them one by one?" Follow their choice. With parts: use the numbered PART labels in the document, in their order. Name the parts first, then start with PART 1, teach one part at a time and move to the next one only when the learner is ready.';
 /* The partner is also a teacher for the file's content. */
 const DOC_TEACH = 'You are also the learner\'s teacher for this material. Whenever the learner asks you to explain something (a part, an idea, a word, or the whole thing), explain it like a good teacher: simple, clear English at their level, with a short example, then check that they understood with one question. An explanation may be longer than the usual reply length, up to about 120 words per turn; then go back to talking about the material so the learner keeps practicing speaking. In practice mode keep correcting their mistakes as usual; if a mistake is still open when they ask for an explanation, explain first, then go back to that mistake.';
 
@@ -134,19 +139,46 @@ function docOpening() {
   return `The learner gave you a document called "${d.name}". At the very start, greet the learner briefly and say in a few words what the document is about. ${DOC_WAY} Keep the conversation on the document.${focus}`;
 }
 /* The document itself, added by the code to the instructions of every Conversation engine. */
+/* Split a piece of the file into numbered parts, in the file's own order: a new part starts at a
+   heading-like line (short, no final period) once the current part is long enough, or when it gets long. */
+function splitParts(text, maxParts = 8) {
+  const paras = text.split('\n').map((p) => p.trim()).filter(Boolean);
+  if (!paras.length) return [];
+  const total = paras.reduce((n, p) => n + p.length, 0);
+  const target = Math.max(500, total / maxParts);
+  const isHead = (p) => p.length <= 80 && !/[.!?:;,]$/.test(p);
+  const parts = []; let cur = null;
+  paras.forEach((p, i) => {
+    const startNew = !cur || (cur.len >= target * 0.5 && isHead(p) && i + 1 < paras.length) || cur.len >= target * 1.6;
+    if (startNew) { cur = { title: isHead(p) ? p : p.split(/\s+/).slice(0, 8).join(' ') + '...', lines: [], len: 0 }; parts.push(cur); }
+    cur.lines.push(p); cur.len += p.length;
+  });
+  return parts.map((x) => ({ title: x.title, text: x.lines.join('\n') }));
+}
+function labeledSection(text, label) {
+  const parts = splitParts(text);
+  if (parts.length < 2) return { text: `[${label}]\n${text}`, parts };
+  return { text: parts.map((x, i) => `[${label ? label + ', ' : ''}PART ${i + 1}: ${x.title}]\n${x.text}`).join('\n\n'), parts };
+}
+const DOC_ORDER = 'ORDER: the material below is already split into numbered parts in the order of the file. When the learner wants to go part by part, use exactly these parts in exactly this order: always start with PART 1, then PART 2, and so on. Before you start a part, say its number and title. Never skip a part, never jump around and never change the order. Go to the next part only when the learner is ready. Only if the learner asks to go back or to jump to a part, do that. An overview also follows this order.';
+/* The document itself, added by the code to the instructions of every Conversation engine. */
 function docBlock(engine = docEngine()) {
   if (!docActive()) return '';
   const d = docState; const cap = DOC_CAP[engine] || DOC_CAP.chat;
   let head; let src;
   if (d.chapter != null) {
-    src = chapterText(d.chapter);
-    head = `The learner chose this chapter: "${d.chapters[d.chapter].title}". Talk ONLY about this chapter. Do not bring up other chapters unless the learner asks to switch.`;
+    const c = d.chapters[d.chapter];
+    src = `${c.title}\n` + labeledSection(chapterText(d.chapter, true), c.title).text;
+    head = `The learner chose this chapter: "${c.title}". Talk ONLY about this chapter. Do not bring up other chapters unless the learner asks to switch.`;
+  } else if (d.chapters.length) {
+    src = d.chapters.map((c, i) => `${c.title}\n` + labeledSection(chapterText(i, true), c.title).text).join('\n\n');
+    head = `Chapters in the document:\n${docOutline()}\nOnce the learner picks a chapter, talk only about that chapter, and its parts are the PART labels inside that chapter.`;
   } else {
-    src = d.text;
-    head = d.chapters.length ? `Chapters in the document:\n${docOutline()}\nOnce the learner picks a chapter, talk only about that chapter.` : '';
+    src = labeledSection(d.text, '').text;
+    head = '';
   }
   const { body, cut } = docCut(src, cap);
-  return `\n\nTHE LEARNER'S DOCUMENT "${d.name}". It is the subject of this whole conversation: stay on it and never drift to other topics, unless the learner clearly asks.\n${DOC_TEACH}` +
+  return `\n\nTHE LEARNER'S DOCUMENT "${d.name}". It is the subject of this whole conversation: stay on it and never drift to other topics, unless the learner clearly asks.\n${DOC_TEACH}\n${DOC_ORDER}` +
     (head ? '\n' + head : '') +
     (cut ? '\n(Only the beginning is shown below because it is long. If the learner asks about a part you cannot see, say so briefly and ask them to tell you about it.)' : '') +
     `\n--- DOCUMENT START ---\n${body}\n--- DOCUMENT END ---`;
@@ -156,8 +188,8 @@ function docHeard(text) {
   if (!docActive() || !docState.chapters.length || docState.chapter != null) return;
   const low = String(text).toLowerCase();
   let pick = -1;
-  const m = low.match(new RegExp('\\b(?:chapter|unit|lesson|part|module|section)\\s+(\\d+|' + NUM_WORDS.slice(1).join('|') + ')\\b')) ||
-    low.match(new RegExp('\\b(?:the\\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\\s+(?:chapter|unit|lesson|part)'));
+  const m = low.match(new RegExp('\\b(?:chapter|unit|lesson|module)\\s+(\\d+|' + NUM_WORDS.slice(1).join('|') + ')\\b')) ||
+    low.match(new RegExp('\\b(?:the\\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\\s+(?:chapter|unit|lesson)'));
   if (m) {
     const ord = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].indexOf(m[1]);
     const n = ord >= 0 ? ord + 1 : chapterNumber(m[1]);
