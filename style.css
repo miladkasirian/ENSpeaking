@@ -460,3 +460,6 @@ dialog#guide {
 .msg.me.practice-try { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--fix) 70%, transparent); }
 .msg.me.practice-done { box-shadow: 0 0 0 2px var(--good); }
 .msg.me.practice-done .who::after { content: " \00b7  practiced \2713"; color: var(--good); font-weight: 700; }
+
+/* corrections scale under the slider */
+.scale-ends { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 2px; }

@@ -163,6 +163,7 @@ const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&
 function repeatInstructions() {
   return [
     prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
+    settingsRule('repeat'),
     'Whenever you give the learner something to repeat, a whole sentence or a single word, end that turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence or word>". Then stop and wait. Do not use this pattern in any other turn.',
     'Never move on to a new sentence by yourself. Stay on the current sentence until the learner says "Next sentence, please".',
   ].join(' ');
@@ -312,7 +313,7 @@ function finishMyTurn(st) {
   b.classList.remove('pending');
   if (isNoise(text)) { b.remove(); return; } // only background noise was heard
   history.push({ role: 'user', content: text }); history = history.slice(-16);
-  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
   persistChat();
 }
 function onGeminiMsg(st, msg) {
@@ -430,6 +431,6 @@ function sendTypedGemini(text) {
   const b = bubble($('log'), 'me', text, { typed: true });
   history.push({ role: 'user', content: text }); history = history.slice(-16);
   st.ws.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true } }));
-  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+  if (!liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
   return true;
 }

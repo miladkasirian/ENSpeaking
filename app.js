@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.15.1 (2026-10-02)';
+const VERSION = '2.16.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,7 +38,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'B1', strict: 'all', explainLang: 'English', replyLen: 'short',
+  level: 'B1', strict: 5, explainLang: 'English', replyLen: 'short',
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true,
   talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
@@ -59,6 +59,9 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
 const S = Object.assign({}, DEFAULTS, store.get('ens.settings', {}));
+// corrections used to be a list (all / major / off); it is now a 0 to 5 scale
+if (typeof S.strict === 'string') S.strict = { all: 5, major: 2, off: 0 }[S.strict] ?? (Number(S.strict) || 5);
+S.strict = Math.max(0, Math.min(5, Math.round(Number(S.strict))));
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
   const g = S.provider === 'gemini';
@@ -515,12 +518,35 @@ async function onRecorded(r) {
 }
 
 /* ---------- conversation ---------- */
+/* How picky corrections are: 0 = never correct, 5 = every mistake. */
+const STRICT_NAMES = ['Off', 'Only serious', 'Important', 'All grammar', 'Grammar + unnatural', 'Every mistake'];
+const STRICT_RULES = [
+  '',
+  'only mistakes so serious that the meaning is unclear or wrong. Ignore every other mistake',
+  'only clear, important mistakes: wrong verb tense or verb form, wrong word order, and wrong words that change the meaning. Ignore articles, prepositions, plurals, small slips and style',
+  'all grammar mistakes and wrong words, including articles, prepositions and plurals. Ignore phrasing that is correct but not perfectly natural',
+  'all grammar and word mistakes, plus clearly unnatural phrasing a native speaker would not use. Ignore small style preferences',
+  'every mistake: grammar, word choice, articles, prepositions, and any unnatural or non-native-sounding phrasing',
+];
+const corrOn = () => Number(S.strict) > 0;
+const strictRule = () => STRICT_RULES[Number(S.strict)] ?? STRICT_RULES[5];
 function tutorRules() {
-  return {
-    all: 'Report every grammar, word-choice and unnatural-phrasing mistake.',
-    major: 'Report only clear grammar mistakes and wrong words that change or blur the meaning.',
-    off: 'Do not report mistakes: always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".',
-  }[S.strict];
+  return corrOn()
+    ? `Report ${strictRule()}. Do not report anything else.`
+    : 'Do not report mistakes: always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".';
+}
+/* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
+function settingsRule(kind) {
+  const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}.`;
+  if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
+  const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN.short}.`;
+  let corr;
+  if (isOpenTalk()) corr = 'Do not correct the learner at all.';
+  else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
+  else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
+  else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr}`;
 }
 const REPLY_LEN = {
   short: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -568,10 +594,8 @@ function openingLine(kind) {
     : 'At the very start, greet the learner briefly and ask in one short sentence what they want to talk about or which real-life situation they want to practice, for example a job interview, ordering food, or small talk with a neighbor. Then build the whole conversation around what they describe, using their own details.';
 }
 function promptVars(extra = {}) {
-  const speakFix = S.strict !== 'off' && S.sayCorrections;
-  const scope = S.strict === 'major'
-    ? 'clear grammar mistakes and wrong words that change or blur the meaning (ignore small style issues)'
-    : 'every grammar mistake, wrong word, wrong verb form, missing or wrong article, and unnatural phrasing';
+  const speakFix = corrOn() && S.sayCorrections;
+  const scope = strictRule();
   const v = {
     level: S.level, explainLang: S.explainLang,
     replyLength: REPLY_LEN[S.replyLen] || REPLY_LEN.short,
@@ -630,15 +654,16 @@ function talkSystemPrompt(typed) {
       inputNote: typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
         : "This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner's own mistake, ignore it.",
     }),
+    settingsRule('talk'),
     'Return only a JSON object with these keys:',
     '{"mistakes":[{"wrong":"their exact words","right":"corrected words","why":"short explanation"}],',
-    '"corrected":"their whole message corrected and natural, or empty if no mistakes",',
+    '"corrected":"their message with only the reported mistakes fixed and everything else kept as they said it, or empty if no mistakes",',
     '"spoken_fix":"if there were mistakes, a very short recast to say aloud, like: You could say, I went there yesterday. Otherwise empty",',
     '"reply":"your reply"}',
   ].join('\n');
 }
 function renderFix(log, out) {
-  if (S.strict === 'off') return [];
+  if (!corrOn()) return [];
   const mistakes = Array.isArray(out.mistakes) ? out.mistakes.filter((m) => m && (m.wrong || m.right)) : [];
   const fix = el('div', 'fix' + (mistakes.length ? '' : ' ok'));
   if (mistakes.length) {
@@ -708,7 +733,7 @@ async function handleTalk(text, typed) {
    In Practice mode a correction becomes a sentence to say again. The app stays on it,
    checking each try, until you tap "OK, continue". Open talk skips all of this. */
 let talkDrill = null; // { sentence, question, tries, reminders, el (your wrong bubble), reply? (turn by turn: the reply held back) }
-const practiceLoop = () => !isOpenTalk() && S.strict !== 'off' && S.sayCorrections;
+const practiceLoop = () => !isOpenTalk() && corrOn() && S.sayCorrections;
 /* The last question in a partner turn, so it can be asked again while you practice. */
 function lastQuestion(text) {
   const qs = String(text || '').match(/[^.!?\n]*\?/g);
@@ -864,7 +889,7 @@ async function nextSentence() {
   try {
     const out = await chatJSON([
       { role: 'system', content: [
-        prompt('repeatSentence', { topic: topicLine('drill') }),
+        prompt('repeatSentence', { topic: topicLine('drill') }), settingsRule('repeat'),
         'Return only JSON: {"sentence":"...","focus":"2 to 5 words naming the grammar or sound it practices"}',
       ].join('\n') },
       { role: 'user', content: 'Do not reuse any of these: ' + JSON.stringify(usedSentences.slice(-25)) },
@@ -925,7 +950,7 @@ function continueHandsFree() {
 /* ---------- realtime call (WebRTC) ---------- */
 let rt = null;
 function rtInstructions() {
-  const base = prompt('liveConversation', openTalkVars());
+  const base = prompt('liveConversation', openTalkVars()) + '\n' + settingsRule('live');
   if (!practiceLoop()) return base;
   return base + ' When you correct a mistake, say the corrected sentence and end with exactly: "Repeat after me: <the corrected sentence>", then ask your last question again. From then on the mistake is open: after everything the learner says, briefly correct it if needed, say the same corrected sentence again, ask them to repeat it, and ask your last question again. While a mistake is open do not ask anything new, do not change the topic and do not start practicing another sentence. Only when the learner says "OK, my mistake is closed" do you continue the conversation normally.';
 }
@@ -1077,7 +1102,7 @@ function onRtEvent(ev) {
     const u = ev.usage;
     if (u && u.type === 'duration' && u.seconds) addCost('rt', (u.seconds / 60) * 0.003);
     else if (u && u.input_tokens) addCost('rt', ((u.input_tokens || 0) * 1.25 + (u.output_tokens || 0) * 5) / 1e6);
-    if (text && !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, b);
+    if (text && !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, b);
   } else if (t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta') {
     const b = rtBubble(ev.item_id, 'ai'); if (b) { b.querySelector('.txt').textContent += ev.delta || ''; scrollDown(rtLog()); }
   } else if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
@@ -1108,8 +1133,8 @@ async function writtenCorrections(text, afterEl) {
   try {
     const out = await chatJSON([
       { role: 'system', content: [
-        prompt('checker'),
-        'Return only JSON: {"mistakes":[{"wrong":"...","right":"...","why":"short explanation"}],"corrected":"whole message corrected, or empty"}',
+        prompt('checker'), settingsRule('checker'),
+        'Return only JSON: {"mistakes":[{"wrong":"...","right":"...","why":"short explanation"}],"corrected":"the message with only the reported mistakes fixed, everything else kept as said, or empty"}',
       ].join('\n') },
       { role: 'user', content: text },
     ], 300);
@@ -1129,7 +1154,7 @@ function sendTypedRealtime(text) {
   bubble($('log'), 'me', text, { typed: true });
   st.dc.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }));
   st.dc.send(JSON.stringify({ type: 'response.create' }));
-  if (!liveTalkUserSaid(text, $('log').lastElementChild) && (S.rtWritten || practiceLoop()) && S.strict !== 'off') writtenCorrections(text, $('log').lastElementChild);
+  if (!liveTalkUserSaid(text, $('log').lastElementChild) && (S.rtWritten || practiceLoop()) && corrOn()) writtenCorrections(text, $('log').lastElementChild);
   return true;
 }
 
@@ -1400,7 +1425,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'strict', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'replyLen', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1409,7 +1434,7 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
-      if (['level', 'strict', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
+      if (['level', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
   ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic'].forEach((id) => {
@@ -1423,6 +1448,10 @@ function bindSettings() {
   $('rate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
   $('rate').addEventListener('input', () => { S.rate = Number($('rate').value); $('rateVal').textContent = S.rate.toFixed(2); saveSettings(); });
   $('rate').addEventListener('change', () => liveSettingsChanged());
+  const showStrict = () => { $('strictVal').textContent = `${S.strict}: ${STRICT_NAMES[S.strict]}`; };
+  $('strict').value = S.strict; showStrict();
+  $('strict').addEventListener('input', () => { S.strict = Number($('strict').value); showStrict(); saveSettings(); });
+  $('strict').addEventListener('change', () => liveSettingsChanged());
   $('testVoice').addEventListener('click', () => { unlockAudio(); stopSpeaking(); speak('Hi! This is how I sound. Shall we practice some English?'); });
   $('resetPrices').addEventListener('click', () => { S.prices = {}; saveSettings(); renderPrices(); fillModelSelects(); });
   $('resetTotals').addEventListener('click', () => { Object.keys(totals).forEach((k) => { totals[k] = 0; }); store.set('ens.totals', totals); renderTotals(); renderSpend(); });

@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.15.1">
+<link rel="stylesheet" href="style.css?v=2.16.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -220,8 +220,10 @@
       <div class="grid2">
         <label class="field"><span>My level</span>
           <select id="level"><option>A2</option><option>B1</option><option>B2</option><option>C1</option></select></label>
-        <label class="field"><span>Corrections</span>
-          <select id="strict"><option value="all">Every mistake</option><option value="major">Only important ones</option><option value="off">Off</option></select></label>
+        <label class="field"><span>Corrections <b id="strictVal">5: Every mistake</b></span>
+          <input id="strict" type="range" min="0" max="5" step="1" value="5" list="strictMarks">
+          <datalist id="strictMarks"><option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option><option value="4"></option><option value="5"></option></datalist>
+          <span class="scale-ends"><span>Off</span><span>Every mistake</span></span></label>
         <label class="field"><span>Explain mistakes in</span>
           <select id="explainLang"><option value="English">English</option><option value="Persian">Persian</option></select></label>
         <label class="field"><span>Reply length</span>
@@ -275,7 +277,7 @@
   </div>
 </dialog>
 
-<script src="gemini.js?v=2.15.1"></script>
-<script src="app.js?v=2.15.1"></script>
+<script src="gemini.js?v=2.16.0"></script>
+<script src="app.js?v=2.16.0"></script>
 </body>
 </html>
