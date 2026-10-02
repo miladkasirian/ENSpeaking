@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.22.0 (2026-10-02)';
+const VERSION = '2.22.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -718,6 +718,15 @@ const TONES = {
     rule: 'TONE: like a polite customer-service conversation (a store, a bank, a restaurant, a front desk): courteous, helpful phrases such as "How can I help you?" and "Would you like...". ' + NO_NICKNAMES },
   teacher: { casual: false, ask: "Talk to me like a friendly teacher.",
     rule: 'TONE: like a friendly, patient teacher with an adult student: warm, encouraging, clear and respectful. ' + NO_NICKNAMES },
+  // Street slang, from polite to no filter. The learner is an adult who asked for real street English.
+  slang1: { casual: true, ask: "Talk to me in American street slang, but keep it clean.",
+    rule: 'TONE: American street slang, the way young people talk on the street: lots of slang and casual grammar (ain\'t, gonna, y\'all, no cap, lit, for real, my bad, chill), but clean: no swearing. You may call the learner man, bro or dude, never kid.' },
+  slang2: { casual: true, ask: "Talk to me in street slang. A little swearing is fine.",
+    rule: 'TONE: American street slang with mild swearing, like friends talking casually: slang and casual grammar, and words like damn, hell, crap, sucks, pissed off now and then. You may call the learner man, bro or dude, never kid.' },
+  slang3: { casual: true, ask: "Talk to me like real street talk, swearing is fine.",
+    rule: 'TONE: rough American street talk, the way people really talk on the street: heavy slang and casual grammar, and swearing like shit, fucking, ass, bullshit used naturally, the way a native speaker swears in casual talk. You may call the learner man, bro or dude, never kid.' },
+  slang4: { casual: true, ask: "Talk to me with no filter at all, street style, be as rude as you like.",
+    rule: 'TONE: no filter. Unfiltered, rude, blunt American street talk: heavy slang, swearing as much as a native speaker would in a rough chat (fuck, fucking, shit, damn, ass, bullshit), sarcasm, teasing and trash talk, playfully roasting the learner like a rough friend would. Only two limits: no slurs or insults about race, religion, nationality, gender or sexuality, and never call the learner kid.' },
 };
 const toneOf = () => TONES[S.tone] || TONES.strangers;
 /* How the partner sounds: spoken English in the chosen tone. From normal speed up: no reading pauses at all. */
