@@ -436,3 +436,9 @@ dialog#guide {
 .shot.zoom .shot-hint::after { content: " (tap again to shrink)"; }
 .engine-chip { overflow: hidden; }
 #engineName { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+.mic-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mic-badge { width: 42px; height: 42px; border-radius: 12px; background: var(--ai-soft); color: var(--ai); display: grid; place-items: center; flex: none; }
+.mic-text { flex: 1 1 160px; min-width: 0; }
+.mic-text h3 { margin: 0 0 2px; }
+.guide-dismiss { margin-top: 8px; width: 100%; padding: 11px; }

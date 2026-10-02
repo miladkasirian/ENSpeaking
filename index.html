@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.11.1">
+<link rel="stylesheet" href="style.css?v=2.12.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -159,6 +159,16 @@
       <p class="hint">On the free tier Google may use what you send to improve its products, and people may review it.</p>
     </section>
 
+    <section class="group mic-group" id="micGroup" hidden>
+      <div class="mic-row">
+        <span class="mic-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2Z"/></svg>
+        </span>
+        <div class="mic-text"><h3>Microphone always on?</h3><p class="hint">Stop the "allow microphone" question every time.</p></div>
+        <button type="button" class="pill-btn strong" id="micAlwaysBtn">Show me how</button>
+      </div>
+    </section>
+
     <section class="group" id="engineGroup">
       <h3>Engine</h3>
       <div class="choice">
@@ -262,7 +272,7 @@
   </div>
 </dialog>
 
-<script src="gemini.js?v=2.11.1"></script>
-<script src="app.js?v=2.11.1"></script>
+<script src="gemini.js?v=2.12.0"></script>
+<script src="app.js?v=2.12.0"></script>
 </body>
 </html>

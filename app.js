@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.11.1 (2026-10-02)';
+const VERSION = '2.12.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -92,6 +92,8 @@ const UA = navigator.userAgent || '';
 const IS_IOS = /iPad|iPhone|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const IS_ANDROID = /Android/i.test(UA);
 const PLATFORM = IS_IOS ? 'ios' : IS_ANDROID ? 'android' : 'desktop';
+const IS_STANDALONE = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+const IS_IOS_SAFARI = IS_IOS && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(UA);
 const DEVICE_VOICE = IS_IOS ? 'iPhone voice' : IS_ANDROID ? 'Android voice' : 'Device voice';
 document.documentElement.dataset.platform = PLATFORM;
 function micHelp() {
@@ -1393,25 +1395,61 @@ const GUIDES = {
     field: 'apiKey',
   },
 };
+/* iPhone: add the app to the Home Screen, and let Safari always allow the microphone. */
+GUIDES.install = {
+  title: 'Add EN Speaking to your Home Screen',
+  intro: 'It then opens full screen like a real app, with its own icon. Takes ten seconds.',
+  steps: [
+    ['Tap the <b>three dots</b> next to the address bar at the bottom.', 'guide/install-1.jpg', 'Safari address bar with the three dots button marked'],
+    ['Tap <b>Share</b>.', 'guide/install-2.jpg', 'Safari menu with Share marked'],
+    ['Tap <b>View More</b> (the arrow pointing down).', 'guide/install-3.jpg', 'Share sheet with View More marked'],
+    ['Tap <b>Add to Home Screen</b>, then <b>Add</b> at the top right.', 'guide/install-4.jpg', 'Share options with Add to Home Screen marked'],
+    ['Open EN Speaking from its new icon on your Home Screen.'],
+  ],
+  note: '',
+  done: 'Got it', dismiss: "Don't show this again",
+};
+GUIDES.mic = {
+  title: 'Microphone always on',
+  intro: 'Let Safari use the microphone without asking each time. This is a setting of your iPhone, not of the app.',
+  steps: [
+    ['Open the iPhone <b>Settings</b> app.'],
+    ['Tap <b>Apps</b>, then <b>Safari</b>.'],
+    ['Scroll down to <b>Settings for Websites</b> and tap <b>Microphone</b>.', 'guide/mic-1.jpg', 'Safari settings with Microphone marked'],
+    ['Choose <b>Allow</b>.', 'guide/mic-2.jpg', 'Microphone Access On All Websites with Allow marked'],
+    ['Come back to EN Speaking.'],
+  ],
+  note: 'If the app on your Home Screen still asks once after you open it, tap Allow. Apple decides this part; the app cannot change it.',
+  done: 'Done',
+};
 function openGuide(kind) {
   const g = GUIDES[kind];
   $('guideTitle').textContent = g.title;
+  const notSafari = kind === 'install' && !IS_IOS_SAFARI
+    ? '<p class="hint bad">These steps are for Safari. Open this page in Safari first.</p>' : '';
   $('guideBody').innerHTML =
-    `<p class="guide-intro">${g.intro}</p>` +
-    `<a class="guide-link" href="${g.url}" target="_blank" rel="noopener noreferrer"><span>${g.open}</span><small>${g.site}</small></a>` +
+    `<p class="guide-intro">${g.intro}</p>` + notSafari +
+    (g.url ? `<a class="guide-link" href="${g.url}" target="_blank" rel="noopener noreferrer"><span>${g.open}</span><small>${g.site}</small></a>` : '') +
     '<ol class="guide-steps">' + g.steps.map(([t, img, alt]) =>
       `<li><p>${t}</p>${img ? `<div class="shot"><img src="${img}?v=2" alt="${esc(alt)}" loading="lazy"><span class="shot-hint">Tap to enlarge</span></div>` : ''}</li>`).join('') + '</ol>' +
-    `<p class="hint">${g.note}</p>` +
-    `<button type="button" class="pill-btn strong guide-done" data-field="${g.field}">I have my key</button>`;
+    (g.note ? `<p class="hint">${g.note}</p>` : '') +
+    `<button type="button" class="pill-btn strong guide-done" data-field="${g.field || ''}">${g.done || 'I have my key'}</button>` +
+    (g.dismiss ? `<button type="button" class="pill-btn guide-dismiss">${g.dismiss}</button>` : '');
+  const dis = $('guideBody').querySelector('.guide-dismiss');
+  if (dis) dis.onclick = () => { store.set('ens.noInstallHint', true); $('guide').close(); };
   // tap a picture to see it full size (pinch zoom is off in this app)
   $('guideBody').querySelectorAll('.guide-steps img').forEach((im) => {
     im.addEventListener('click', () => { const z = im.closest('.shot'); z.classList.toggle('zoom'); });
   });
-  $('guideBody').querySelector('.guide-done').onclick = (e) => { $('guide').close(); const f = $(e.target.dataset.field); if (f) f.focus(); };
+  $('guideBody').querySelector('.guide-done').onclick = (e) => { $('guide').close(); const f = e.target.dataset.field && $(e.target.dataset.field); if (f) f.focus(); };
   $('guideBody').scrollTop = 0;
   try { $('guide').showModal(); } catch { $('guide').setAttribute('open', ''); }
 }
 function setupGuide() {
+  $('micAlwaysBtn').addEventListener('click', () => openGuide('mic'));
+  $('micGroup').hidden = !IS_IOS;
+  // iPhone in the browser (not opened from the Home Screen): offer to add it, until "Don't show this again"
+  if (IS_IOS && !IS_STANDALONE && !store.get('ens.noInstallHint', false)) setTimeout(() => { if (!$('settings').open) openGuide('install'); }, 900);
   $('createGKey').addEventListener('click', () => openGuide('gemini'));
   $('createKey').addEventListener('click', () => openGuide('openai'));
   $('guideClose').addEventListener('click', () => $('guide').close());
