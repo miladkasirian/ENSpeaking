@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.16.0 (2026-10-02)';
+const VERSION = '2.16.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B1', strict: 5, explainLang: 'English', replyLen: 'short',
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, bargeIn: false,
   talkMode: 'practice', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
@@ -1437,7 +1437,7 @@ function bindSettings() {
       if (['level', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten', 'keepMic', 'bargeIn'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });

@@ -281,8 +281,13 @@ function onMicChunk(st, f32) {
     let s = 0; for (let k = a; k < b; k++) s += f32[k]; st.q.push(b > a ? s / (b - a) : f32[a] || 0);
   }
   if (st.q.length < 640) return; // send about every 40 ms
+  // On the phone speaker the partner's own voice comes back into the mic and gets transcribed as yours.
+  // So while the partner is talking (and a moment after), silence is sent instead of the mic,
+  // unless "talk over the partner" is on (for headphones).
+  const partnerTalking = st.playT && st.ctx.currentTime < st.playT + 0.6;
+  const muted = partnerTalking && !S.bargeIn;
   const pcm = new DataView(new ArrayBuffer(st.q.length * 2));
-  for (let i = 0; i < st.q.length; i++) pcm.setInt16(i * 2, Math.max(-1, Math.min(1, st.q[i])) * 0x7fff, true);
+  if (!muted) for (let i = 0; i < st.q.length; i++) pcm.setInt16(i * 2, Math.max(-1, Math.min(1, st.q[i])) * 0x7fff, true);
   st.sentSec += st.q.length / 16000; st.q = [];
   st.ws.send(JSON.stringify({ realtimeInput: { audio: { data: bytesToB64(new Uint8Array(pcm.buffer)), mimeType: 'audio/pcm;rate=16000' } } }));
 }
