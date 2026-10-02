@@ -337,3 +337,11 @@ dialog::backdrop { background: rgba(10, 16, 34, .5); backdrop-filter: blur(3px);
   .seg-glider, .target { transition: none; }
   .spend.tick .spend-num { animation: none; }
 }
+
+/* instructions editor */
+#promptText {
+  width: 100%; min-height: 220px; resize: vertical; padding: 10px 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  font: 14.5px/1.5 var(--body);
+}
+.row-btns { display: flex; flex-wrap: wrap; gap: 8px; }

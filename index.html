@@ -205,6 +205,19 @@
       <label class="check"><input id="rtWritten" type="checkbox"> In live calls, also show written corrections (uses the chat model above)</label>
     </section>
 
+    <section class="group" id="promptGroup">
+      <h3>Instructions for the AI</h3>
+      <label class="field"><span>Which instructions</span><select id="promptKey"></select></label>
+      <textarea id="promptText" rows="11" spellcheck="false" aria-label="Instructions text"></textarea>
+      <p class="hint" id="promptState"></p>
+      <p class="hint">Words in curly brackets are filled in from your settings: {level}, {replyLength}, {drillLength}, {feedbackLength}, {corrections}, {correctionScope}, {spokenCorrections}, {explainLang}, {topic}, {inputNote}. The answer format the app needs is added automatically.</p>
+      <div class="row-btns">
+        <button type="button" class="pill-btn strong" id="promptSave">Save</button>
+        <button type="button" class="pill-btn" id="promptReset">Reset to default</button>
+        <button type="button" class="pill-btn" id="promptResetAll">Reset all instructions</button>
+      </div>
+    </section>
+
     <section class="group">
       <h3>Spending</h3>
       <div class="totals" id="totals"></div>

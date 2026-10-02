@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.4.1 (2026-10-02)';
+const VERSION = '2.5.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -233,8 +233,7 @@ async function transcribe(blob, ext, seconds) {
   fd.append('model', S.sttModel);
   fd.append('language', 'en');
   fd.append('response_format', 'json');
-  fd.append('prompt', 'Transcribe exactly what the speaker says, word for word. The speaker is learning English. ' +
-    'Keep every grammar mistake, wrong verb form, missing or wrong article, wrong word, false start and filler word. Do not correct anything.');
+  fd.append('prompt', prompt('transcription'));
   const res = await fetch(API + '/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd });
   if (!res.ok) throw await apiError(res);
   const j = await res.json();
@@ -460,6 +459,59 @@ const REPLY_LEN = {
   short: 'SHORT: one or two short sentences, at most 25 words in total',
   medium: 'MEDIUM: three to five sentences, about 40 to 70 words in total',
 };
+/* ---------- editable instructions ----------
+   Defaults live in prompts.json on GitHub. Your saved edits (localStorage) win until you reset them.
+   The output formats the app depends on are added by the code, so an edit cannot break the app. */
+const PROMPTS = [
+  ['liveConversation', 'Live call: conversation'],
+  ['liveCorrections', 'Live call: how to correct you out loud'],
+  ['liveRepeat', 'Live call: Repeat after me drill'],
+  ['conversation', 'Turn by turn: conversation'],
+  ['repeatSentence', 'Turn by turn: choosing a sentence to repeat'],
+  ['checker', 'Written corrections (checker)'],
+  ['transcription', 'Speech to text'],
+];
+let promptDefaults = store.get('ens.promptDefaults', null);
+let promptEdits = store.get('ens.prompts', {});
+async function loadPromptDefaults(fresh = false) {
+  const res = await fetch('prompts.json', { cache: fresh ? 'reload' : 'no-cache' });
+  if (!res.ok) throw new Error('Could not load the default instructions from GitHub (HTTP ' + res.status + ').');
+  promptDefaults = await res.json();
+  store.set('ens.promptDefaults', promptDefaults);
+  return promptDefaults;
+}
+function rawPrompt(key) {
+  if (typeof promptEdits[key] === 'string') return promptEdits[key];
+  if (promptDefaults && typeof promptDefaults[key] === 'string') return promptDefaults[key];
+  throw new Error('The instructions have not loaded yet. Check the internet connection and try again.');
+}
+function topicLine(kind) {
+  const t = $('topic').value.trim();
+  if (kind === 'drill') return t ? `Use sentences about this topic: ${t}.` : '';
+  return t ? `Conversation topic: ${t}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.';
+}
+function promptVars(extra = {}) {
+  const speakFix = S.strict !== 'off' && S.sayCorrections;
+  const scope = S.strict === 'major'
+    ? 'clear grammar mistakes and wrong words that change or blur the meaning (ignore small style issues)'
+    : 'every grammar mistake, wrong word, wrong verb form, missing or wrong article, and unnatural phrasing';
+  const v = {
+    level: S.level, explainLang: S.explainLang,
+    replyLength: REPLY_LEN[S.replyLen] || REPLY_LEN.short,
+    drillLength: drillLength(),
+    feedbackLength: S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences',
+    corrections: tutorRules(), correctionScope: scope,
+    topic: topicLine('talk'), inputNote: '',
+  };
+  Object.assign(v, extra);
+  if (v.spokenCorrections === undefined) {
+    v.spokenCorrections = speakFix ? fillPrompt(rawPrompt('liveCorrections'), v) : 'Do not correct the learner out loud; just keep the conversation going.';
+  }
+  return v;
+}
+function fillPrompt(text, vars) { return String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m)).replace(/\n{3,}/g, '\n\n').trim(); }
+function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra)); }
+
 /* Drill sentence length follows both the level and the Short/Medium setting. */
 function drillLength() {
   const t = S.replyLen === 'short'
@@ -468,20 +520,13 @@ function drillLength() {
   return t[S.level] || t.B1;
 }
 function talkSystemPrompt(typed) {
-  const len = REPLY_LEN[S.replyLen] || REPLY_LEN.medium;
-  const topic = $('topic').value.trim();
   return [
-    `You are a warm, natural English conversation partner for an adult learner at CEFR level ${S.level}.`,
-    typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
-          : 'This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner\'s own mistake, ignore it.',
-    tutorRules(),
-    `Then reply in English. Reply length is ${len}. Follow this length strictly. Use vocabulary that fits ${S.level}. Keep the conversation going, usually with one question.`,
-    'If the learner asks for a sentence to repeat, give one sentence in "reply" and compare their next message with it.',
-    'If the learner asks about English, answer briefly and clearly.',
-    topic ? `Conversation topic: ${topic}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.',
-    `Write each "why" in ${S.explainLang}, at most 12 words.`,
+    prompt('conversation', {
+      inputNote: typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
+        : "This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner's own mistake, ignore it.",
+    }),
     'Return only a JSON object with these keys:',
-    '{"mistakes":[{"wrong":"their exact words","right":"corrected words","why":"short reason"}],',
+    '{"mistakes":[{"wrong":"their exact words","right":"corrected words","why":"short explanation"}],',
     '"corrected":"their whole message corrected and natural, or empty if no mistakes",',
     '"spoken_fix":"if there were mistakes, a very short recast to say aloud, like: You could say, I went there yesterday. Otherwise empty",',
     '"reply":"your reply"}',
@@ -560,14 +605,10 @@ async function nextSentence() {
   if (!needKeys([S.chatModel])) return;
   unlockAudio(); stopSpeaking();
   setPhase('think'); setStatus('Choosing a sentence...');
-  const lenRule = drillLength();
-  const topic = $('topic').value.trim();
   try {
     const out = await chatJSON([
       { role: 'system', content: [
-        `You write sentences for spoken repeat-after-me practice for an adult English learner at CEFR ${S.level}.`,
-        `Write one natural, everyday spoken English sentence of ${lenRule}. Vary grammar and situations.`,
-        topic ? `Topic: ${topic}.` : '',
+        prompt('repeatSentence', { topic: topicLine('drill') }),
         'Return only JSON: {"sentence":"...","focus":"2 to 5 words naming the grammar or sound it practices"}',
       ].join('\n') },
       { role: 'user', content: 'Do not reuse any of these: ' + JSON.stringify(usedSentences.slice(-25)) },
@@ -625,33 +666,7 @@ function continueHandsFree() {
 /* ---------- realtime call (WebRTC) ---------- */
 let rt = null;
 function rtInstructions() {
-  const len = REPLY_LEN[S.replyLen] || REPLY_LEN.medium;
-  const topic = $('topic').value.trim();
-  const speakFix = S.strict !== 'off' && S.sayCorrections;
-  const which = S.strict === 'major'
-    ? 'clear grammar mistakes and wrong words that change or blur the meaning (ignore small style issues)'
-    : 'every grammar mistake, wrong word, wrong verb form, missing or wrong article, and unnatural phrasing';
-  const lines = [
-    `You are an English speaking coach and conversation partner for an adult learner at CEFR level ${S.level}. The learner is practicing speaking to improve.`,
-    'Speak only English, clearly, at a natural but not fast pace.',
-  ];
-  if (speakFix) {
-    lines.push(
-      'YOUR MOST IMPORTANT JOB IS CORRECTING THE LEARNER. Every time the learner finishes speaking, first check what they said for ' + which + '.',
-      'If you find any mistake, you MUST start your reply with a short spoken correction before anything else. Use this pattern: "Quick correction: say ... instead of ...". For example, if they said "Yesterday I go to the park", start with: "Quick correction: say I went, not I go." Then continue the conversation.',
-      'Never skip a correction to keep the conversation flowing, and never pretend a mistake was fine. If there are several mistakes, correct the two most important ones.',
-      'If there is no mistake, do not mention corrections at all; just reply.',
-    );
-  } else {
-    lines.push('Do not correct the learner out loud; just keep the conversation going.');
-  }
-  lines.push(
-    `Reply length is ${len}, not counting the correction. Follow this length strictly in every turn.`,
-    'Usually end with one question to keep the learner talking.',
-    'If the learner asks for a sentence to repeat, say one sentence, then listen and tell them how close they were.',
-    topic ? `Conversation topic: ${topic}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.',
-  );
-  return lines.join(' ');
+  return prompt('liveConversation');
 }
 /* Practice settings changed during a live call: apply them to the call now. */
 function liveSettingsChanged() {
@@ -778,9 +793,8 @@ async function writtenCorrections(text, afterEl) {
   try {
     const out = await chatJSON([
       { role: 'system', content: [
-        `You check spoken English from a learner at CEFR ${S.level}. The text is a speech-to-text transcript: ignore punctuation, capitalization and likely recognition slips.`,
-        tutorRules(), `Write each "why" in ${S.explainLang}, at most 12 words.`,
-        'Return only JSON: {"mistakes":[{"wrong":"...","right":"...","why":"..."}],"corrected":"whole message corrected, or empty"}',
+        prompt('checker'),
+        'Return only JSON: {"mistakes":[{"wrong":"...","right":"...","why":"short explanation"}],"corrected":"whole message corrected, or empty"}',
       ].join('\n') },
       { role: 'user', content: text },
     ], 300);
@@ -863,7 +877,7 @@ function drawOrb(ts) {
 
 /* ---------- settings ---------- */
 function saveSettings() { store.set('ens.settings', S); renderEngineChip(); }
-function openSettings() { renderTotals(); renderPrices(); try { $('settings').showModal(); } catch { $('settings').setAttribute('open', ''); } }
+function openSettings() { renderTotals(); renderPrices(); renderPromptEditor(); try { $('settings').showModal(); } catch { $('settings').setAttribute('open', ''); } }
 function fillSelect(id, ids, current, labelFn) {
   const sel = $(id); sel.innerHTML = '';
   const list = Array.from(new Set([current, ...ids]));
@@ -981,7 +995,49 @@ async function checkGeminiKey() {
   } catch (e) { hint.className = 'hint bad'; hint.textContent = e.message; }
 }
 
+function renderPromptEditor() {
+  const key = $('promptKey').value || PROMPTS[0][0];
+  const edited = typeof promptEdits[key] === 'string';
+  let text = '';
+  try { text = rawPrompt(key); } catch (e) { text = ''; }
+  $('promptText').value = text;
+  const st = $('promptState');
+  st.className = 'hint' + (edited ? ' ok' : '');
+  st.textContent = edited ? 'Using your saved version.' : (promptDefaults ? 'Using the default from GitHub.' : 'The defaults have not loaded yet.');
+}
+function bindPrompts() {
+  const sel = $('promptKey');
+  PROMPTS.forEach(([k, label]) => { const o = el('option'); o.value = k; o.textContent = label; sel.appendChild(o); });
+  sel.addEventListener('change', renderPromptEditor);
+  $('promptSave').addEventListener('click', () => {
+    const key = sel.value; const text = $('promptText').value;
+    if (!text.trim()) { $('promptState').className = 'hint bad'; $('promptState').textContent = 'Empty instructions cannot be saved. Use Reset instead.'; return; }
+    promptEdits[key] = text; store.set('ens.prompts', promptEdits);
+    renderPromptEditor(); $('promptState').textContent = 'Saved. Used from now on.';
+    liveSettingsChanged();
+  });
+  $('promptReset').addEventListener('click', async () => {
+    const key = sel.value;
+    delete promptEdits[key]; store.set('ens.prompts', promptEdits);
+    try { await loadPromptDefaults(true); } catch (e) { $('promptState').className = 'hint bad'; $('promptState').textContent = e.message; return; }
+    renderPromptEditor(); $('promptState').textContent = 'Back to the default from GitHub.';
+    liveSettingsChanged();
+  });
+  let armed = null;
+  $('promptResetAll').addEventListener('click', async () => {
+    const b = $('promptResetAll');
+    if (!armed) { b.textContent = 'Tap again to reset all'; armed = setTimeout(() => { armed = null; b.textContent = 'Reset all instructions'; }, 3000); return; }
+    clearTimeout(armed); armed = null; b.textContent = 'Reset all instructions';
+    promptEdits = {}; store.set('ens.prompts', promptEdits);
+    try { await loadPromptDefaults(true); } catch (e) { $('promptState').className = 'hint bad'; $('promptState').textContent = e.message; return; }
+    renderPromptEditor(); $('promptState').textContent = 'All instructions are back to the defaults from GitHub.';
+    liveSettingsChanged();
+  });
+  renderPromptEditor();
+}
+
 function bindSettings() {
+  bindPrompts();
   $('gKey').value = gKey;
   $('gKey').addEventListener('change', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); if (gKey) checkGeminiKey(); idleStatus(); });
   $('checkGKey').addEventListener('click', () => { gKey = $('gKey').value.trim(); store.set('ens.gkey', gKey); checkGeminiKey(); });
@@ -1128,5 +1184,6 @@ function init() {
   idleStatus();
   if (apiKey && !availableModels) fetchModels().then(fillModelSelects).catch(() => {});
   if (gKey && !availableGemini) fetchGeminiModels().then(fillModelSelects).catch(() => {});
+  loadPromptDefaults().then(() => { if ($('settings').open) renderPromptEditor(); }).catch(() => { /* cached copy is used */ });
 }
 init();

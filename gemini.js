@@ -148,7 +148,7 @@ function b64ToBytes(b64) { const s = atob(b64); const u = new Uint8Array(s.lengt
 async function geminiTranscribe(blob) {
   const wav = await toWav16k(blob);
   const text = await geminiGenerate(S.sttModel,
-    'You are a verbatim speech-to-text transcriber for an English learner. Write exactly the words spoken, keeping every grammar mistake, wrong verb form, missing or wrong article, wrong word, false start and filler word. Never correct, improve, translate or comment.',
+    prompt('transcription'),
     [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(wav) } },
       { text: 'Transcribe this audio word for word. Output only the transcript. If there is no speech, output nothing.' }] }],
     400, false, 'stt');
@@ -161,18 +161,9 @@ let workletReady = false;
 const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("pcm-tap",T);';
 
 function repeatInstructions() {
-  const lenRule = drillLength();
-  const feedback = S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences';
-  const topic = $('topic').value.trim();
   return [
-    `You are an English pronunciation and speaking coach running a repeat-after-me drill for an adult learner at CEFR level ${S.level}.`,
-    'Speak only English. Speak clearly, a little slower than normal.',
-    `Each round, choose one natural everyday spoken English sentence of ${lenRule}, never longer. Vary the grammar and situations.`,
-    'ALWAYS end your turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence>". Then stop and wait.',
-    `When the learner repeats it, first give feedback in ${feedback}: name any word they missed, added or changed, and any word you heard pronounced wrongly, and say how to say it. If it was right, say so in a few words.`,
-    'If they missed or mispronounced something, ask them to try again by ending with "Repeat after me: <the same sentence>". After a correct try, or after three tries, move on to a new sentence the same way.',
-    'If the learner says "next" or asks for a new sentence, give a new one. If they ask to hear it again, say the same sentence again with the same ending pattern.',
-    topic ? `Use sentences about this topic: ${topic}.` : '',
+    prompt('liveRepeat', { topic: topicLine('drill') }),
+    'ALWAYS end every turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence>". Then stop and wait. Use the same pattern when you ask for the same sentence again.',
   ].join(' ');
 }
 /* Ask the coach for something during a live call, as if the learner had typed it. */
