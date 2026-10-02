@@ -430,14 +430,14 @@ const BARGE_LEVEL = 0.03;
    level: how loud your voice must be; chunks: for how long (x 0.04 s); echo: how much louder than the
    partner's own echo; voice: also check that it sounds like a human voice (not a click, hiss or bang). */
 const CUT_LEVELS = [null, null,
-  { level: 0.09, chunks: 13, echo: 4.0, voice: true },
-  { level: 0.075, chunks: 10, echo: 3.6, voice: true },
-  { level: 0.06, chunks: 8, echo: 3.2, voice: true },
-  { level: 0.05, chunks: 6, echo: 2.8, voice: true },
-  { level: 0.045, chunks: 5, echo: 2.5, voice: true },
-  { level: 0.04, chunks: 4, echo: 2.2, voice: true },
-  { level: 0.036, chunks: 4, echo: 2.0, voice: false },
-  { level: 0.033, chunks: 3, echo: 1.8, voice: false },
+  { level: 0.27, chunks: 13, echo: 4.0, voice: true },
+  { level: 0.22, chunks: 10, echo: 3.6, voice: true },
+  { level: 0.18, chunks: 8, echo: 3.2, voice: true },
+  { level: 0.15, chunks: 6, echo: 2.8, voice: true },
+  { level: 0.12, chunks: 5, echo: 2.5, voice: true },
+  { level: 0.10, chunks: 4, echo: 2.2, voice: true },
+  { level: 0.08, chunks: 4, echo: 2.0, voice: false },
+  { level: 0.05, chunks: 3, echo: 1.8, voice: false },
   { level: 0.03, chunks: 3, echo: 1.6, voice: false },
 ];
 const cutLevel = () => CUT_LEVELS[Math.max(1, Math.min(10, Number(S.cutSens) || 10))];
