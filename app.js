@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.3.0 (2026-10-02)';
+const VERSION = '2.4.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -38,7 +38,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 
 const DEFAULTS = {
   engine: 'turn',
-  level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'medium',
+  level: 'C1', strict: 'all', explainLang: 'English', replyLen: 'short',
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true,
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', rate: 1,
@@ -74,6 +74,8 @@ let availableModels = store.get('ens.models', null); // list of ids from /v1/mod
 const totals = Object.assign({ stt: 0, chat: 0, tts: 0, rt: 0, gem: 0 }, store.get('ens.totals', {}));
 const session = { stt: 0, chat: 0, tts: 0, rt: 0, gem: 0, sttSec: 0, chatTok: 0, ttsSec: 0, rtSec: 0, gemSec: 0, gemTok: 0 };
 const isCallEngine = () => S.engine === 'realtime' || S.engine === 'glive';
+/* Which modes run as a live call: Gemini Live covers both tabs; OpenAI Realtime only Conversation. */
+const usesCall = () => S.engine === 'glive' || (S.engine === 'realtime' && mode === 'talk');
 function missingKey(models) {
   for (const m of models) { if (isGem(m) ? !gKey : !apiKey) return isGem(m) ? 'Gemini' : 'OpenAI'; }
   return null;
@@ -125,10 +127,10 @@ function setPhase(p) {
   phase = p;
   const mic = $('mic');
   const glyph = { idle: 'mic', rec: 'stop', think: 'none', speak: 'mic', connecting: 'none', call: 'call' }[p];
-  mic.dataset.glyph = (p === 'idle' && isCallEngine() && mode === 'talk') ? 'call' : glyph;
+  mic.dataset.glyph = (p === 'idle' && usesCall()) ? 'call' : glyph;
   mic.dataset.phase = p;
   mic.setAttribute('aria-label', {
-    idle: isCallEngine() && mode === 'talk' ? 'Start a voice call' : 'Start speaking',
+    idle: usesCall() ? 'Start a voice call' : 'Start speaking',
     rec: 'Stop and send', think: 'Working', speak: 'Interrupt and speak', connecting: 'Connecting', call: 'End the call',
   }[p]);
   $('typed').disabled = p === 'connecting';
@@ -458,6 +460,13 @@ const REPLY_LEN = {
   short: 'SHORT: one or two short sentences, at most 25 words in total',
   medium: 'MEDIUM: three to five sentences, about 40 to 70 words in total',
 };
+/* Drill sentence length follows both the level and the Short/Medium setting. */
+function drillLength() {
+  const t = S.replyLen === 'short'
+    ? { A2: '4 to 7 words', B1: '5 to 9 words', B2: '6 to 10 words', C1: '7 to 12 words' }
+    : { A2: '6 to 10 words', B1: '8 to 13 words', B2: '10 to 16 words', C1: '12 to 20 words' };
+  return t[S.level] || t.B1;
+}
 function talkSystemPrompt(typed) {
   const len = REPLY_LEN[S.replyLen] || REPLY_LEN.medium;
   const topic = $('topic').value.trim();
@@ -551,7 +560,7 @@ async function nextSentence() {
   if (!needKeys([S.chatModel])) return;
   unlockAudio(); stopSpeaking();
   setPhase('think'); setStatus('Choosing a sentence...');
-  const lenRule = { A2: '5 to 9 words', B1: '7 to 12 words', B2: '9 to 15 words', C1: '12 to 20 words' }[S.level];
+  const lenRule = drillLength();
   const topic = $('topic').value.trim();
   try {
     const out = await chatJSON([
@@ -575,8 +584,8 @@ async function nextSentence() {
     continueHandsFree();
   } catch (e) { setPhase('idle'); setStatus(e.message, true); }
 }
-async function handleRepeat(text) {
-  if (!target) { setPhase('idle'); setStatus('Tap Next sentence first.'); return; }
+/* Draws one try against the target sentence and returns the share of words hit, in percent. */
+function renderAttempt(text) {
   attempts++;
   const { tHit, sHit, score } = align(words(target.sentence), words(text));
   let k = 0;
@@ -591,6 +600,11 @@ async function handleRepeat(text) {
   card.innerHTML = `<div class="title">Try ${attempts}: <span class="score">${pct}%</span> of the words</div>` +
     `<div class="diff">${targetHtml}</div><div class="why" style="margin-top:6px">I heard: <span class="diff">${saidHtml || '(nothing)'}</span></div>`;
   log.appendChild(card); scrollDown(log);
+  return pct;
+}
+async function handleRepeat(text) {
+  if (!target) { setPhase('idle'); setStatus('Tap Next sentence first.'); return; }
+  const pct = renderAttempt(text);
   if (pct === 100) {
     await speak('Perfect.');
     setStatus('Perfect. Tap Next sentence.');
@@ -936,7 +950,7 @@ function syncEngineUI() {
 }
 function idleStatus() {
   const haveKey = S.provider === 'gemini' ? gKey : apiKey;
-  setStatus(haveKey ? (isCallEngine() && mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle and speak, or type below.')
+  setStatus(haveKey ? (usesCall() ? (mode === 'talk' ? 'Tap the circle to start a live call, or type below.' : 'Tap the circle to start. Gemini says a sentence, you repeat it.') : 'Tap the circle and speak, or type below.')
     : `Start by adding your ${S.provider === 'gemini' ? 'Gemini' : 'OpenAI'} key in Settings.`);
 }
 function syncHandsFree() { $('handsFreeBtn').setAttribute('aria-pressed', S.handsFree ? 'true' : 'false'); $('handsFree').checked = !!S.handsFree; }
@@ -1019,9 +1033,9 @@ function bindSettings() {
 /* ---------- wiring ---------- */
 function onOrb() {
   unlockAudio(); handsFreeCancelled = false;
-  if (mode === 'talk' && isCallEngine()) {
+  if (usesCall()) {
     if (phase === 'call' || phase === 'connecting') endAnyCall();
-    else { stopSpeaking(); if (S.engine === 'glive') startGeminiCall(); else startCall(); }
+    else { stopSpeaking(); if (S.engine === 'glive') startGeminiCall(mode); else startCall(); }
     return;
   }
   if (phase === 'rec') { stopRec(); return; }
@@ -1039,7 +1053,8 @@ function switchMode(m) {
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat';
   $('composer').hidden = m !== 'talk';
   setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
-  if (m === 'repeat' && isCallEngine()) setStatus('Repeat practice uses the turn-by-turn engine. Tap Next sentence to begin.');
+  if (m === 'repeat' && S.engine === 'realtime') setStatus('Repeat practice uses the turn-by-turn engine with OpenAI. Tap Next sentence to begin.');
+  if (m === 'repeat' && S.engine === 'glive') setStatus('Tap the circle to start. Gemini says a sentence, you repeat it, it tells you how it went.');
 }
 async function onTyped(ev) {
   ev.preventDefault();
@@ -1089,9 +1104,22 @@ function init() {
     unlockAudio(); stopSpeaking(); speak(b.dataset.say || b.parentNode.querySelector('.txt').textContent);
   });
   $('clearRepeat').addEventListener('click', () => { $('repeatLog').innerHTML = ''; emptyState(); });
-  $('nextSentence').addEventListener('click', () => { handsFreeCancelled = false; nextSentence(); });
-  $('hearAgain').addEventListener('click', () => { if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence); } });
-  $('hearSlow').addEventListener('click', () => { if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence, Math.max(0.5, Number(S.rate) * 0.7)); } });
+  // In a Gemini Live repeat drill these buttons ask the coach instead of the turn-by-turn engine.
+  const liveRepeat = () => gl && gl.kind === 'repeat';
+  $('nextSentence').addEventListener('click', () => {
+    handsFreeCancelled = false;
+    if (liveRepeat()) { geminiSay('Next sentence, please.'); return; }
+    if (S.engine === 'glive') { unlockAudio(); startGeminiCall('repeat'); return; }
+    nextSentence();
+  });
+  $('hearAgain').addEventListener('click', () => {
+    if (liveRepeat()) { geminiSay('Please say the same sentence again.'); return; }
+    if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence); }
+  });
+  $('hearSlow').addEventListener('click', () => {
+    if (liveRepeat()) { geminiSay('Please say the same sentence again, slowly and clearly.'); return; }
+    if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence, Math.max(0.5, Number(S.rate) * 0.7)); }
+  });
   $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }

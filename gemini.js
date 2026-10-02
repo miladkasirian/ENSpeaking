@@ -160,12 +160,41 @@ let gl = null;
 let workletReady = false;
 const PCM_TAP = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("pcm-tap",T);';
 
-async function startGeminiCall() {
+function repeatInstructions() {
+  const lenRule = drillLength();
+  const feedback = S.replyLen === 'short' ? 'one short sentence, at most 15 words' : 'two or three sentences';
+  const topic = $('topic').value.trim();
+  return [
+    `You are an English pronunciation and speaking coach running a repeat-after-me drill for an adult learner at CEFR level ${S.level}.`,
+    'Speak only English. Speak clearly, a little slower than normal.',
+    `Each round, choose one natural everyday spoken English sentence of ${lenRule}, never longer. Vary the grammar and situations.`,
+    'ALWAYS end your turn with exactly this pattern and nothing after it: "Repeat after me: <the sentence>". Then stop and wait.',
+    `When the learner repeats it, first give feedback in ${feedback}: name any word they missed, added or changed, and any word you heard pronounced wrongly, and say how to say it. If it was right, say so in a few words.`,
+    'If they missed or mispronounced something, ask them to try again by ending with "Repeat after me: <the same sentence>". After a correct try, or after three tries, move on to a new sentence the same way.',
+    'If the learner says "next" or asks for a new sentence, give a new one. If they ask to hear it again, say the same sentence again with the same ending pattern.',
+    topic ? `Use sentences about this topic: ${topic}.` : '',
+  ].join(' ');
+}
+/* Ask the coach for something during a live call, as if the learner had typed it. */
+function geminiSay(text) {
+  const st = gl; if (!st || !st.ws || st.ws.readyState !== 1 || !st.setupDone) return false;
+  st.ws.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text }] }], turnComplete: true } }));
+  return true;
+}
+/* Pull the drill sentence out of the coach's words: whatever follows the last "Repeat after me". */
+function parseDrill(text) {
+  const t = String(text || '');
+  const i = t.toLowerCase().lastIndexOf('repeat after me');
+  if (i < 0) return null;
+  const sentence = t.slice(i + 15).replace(/^\s*[:,.\-]?\s*/, '').replace(/^["“]|["”]\s*$/g, '').trim();
+  return sentence ? { sentence, before: t.slice(0, i).trim() } : null;
+}
+
+async function startGeminiCall(kind = 'talk') {
   if (!gKey) { setStatus('Add your Gemini key in Settings first.', true); openSettings(); return; }
   setPhase('connecting'); setStatus('Connecting to Gemini...');
   setAudioSession('play-and-record');
-  clearEmpty($('log'));
-  const st = { ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
+  const st = { kind, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
     t0: 0, timer: null, handle: null, basic: false, setupDone: false, closing: false, reconnects: 0, me: null, meText: '', ai: null, aiText: '', stops: [] };
   gl = st;
   try {
@@ -200,7 +229,7 @@ function geminiSetup(st) {
   const setup = {
     model: 'models/' + S.gLiveModel,
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: S.gVoice } } } },
-    systemInstruction: { parts: [{ text: rtInstructions() }] },
+    systemInstruction: { parts: [{ text: st.kind === 'repeat' ? repeatInstructions() : rtInstructions() }] },
     inputAudioTranscription: st.basic ? {} : { mode: 'VERBATIM' },
     outputAudioTranscription: {},
   };
@@ -261,6 +290,12 @@ function cutPlayback(st) {
   st.sources = []; st.playT = 0;
 }
 function finishMyTurn(st) {
+  if (st.kind === 'repeat') {
+    const text = st.meText.trim(); st.meText = '';
+    if (st.meStarted && text && target) renderAttempt(text);
+    st.meStarted = false;
+    return;
+  }
   if (!st.me) return;
   const text = st.meText.trim(); const b = st.me;
   st.me = null; st.meText = '';
@@ -281,7 +316,11 @@ function onGeminiMsg(st, msg) {
         $('status').textContent = `Live with Gemini for ${fmtDur((performance.now() - st.t0) / 1000)}. Tap the circle to hang up.`;
       }, 1000);
     }
-    setPhase('call'); setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
+    setPhase('call');
+    if (st.kind === 'repeat') {
+      setStatus('Live drill with Gemini. Listen, then repeat. Tap the circle to stop.');
+      if (!st.started) { st.started = true; geminiSay('Let\'s start. Give me the first sentence.'); }
+    } else setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
     return;
   }
   if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.newHandle) st.handle = msg.sessionResumptionUpdate.newHandle;
@@ -292,10 +331,13 @@ function onGeminiMsg(st, msg) {
   }
   const sc = msg.serverContent;
   if (!sc) return;
-  const log = $('log');
+  const log = st.kind === 'repeat' ? $('repeatLog') : $('log');
   if (sc.interrupted) cutPlayback(st);
-  if (sc.inputTranscription && sc.inputTranscription.text) {
-    if (!st.me) { st.me = bubble(log, 'me', '', { pending: true }); st.meText = ''; }
+  if (st.kind === 'repeat' && sc.inputTranscription && sc.inputTranscription.text) {
+    st.meText += sc.inputTranscription.text; st.meStarted = true;
+    $('status').textContent = 'Hearing: ' + st.meText.trim();
+  } else if (sc.inputTranscription && sc.inputTranscription.text) {
+    if (!st.me) { clearEmpty(log); st.me = bubble(log, 'me', '', { pending: true }); st.meText = ''; }
     st.meText += sc.inputTranscription.text;
     st.me.querySelector('.txt').textContent = st.meText.trim();
     scrollDown(log);
@@ -305,10 +347,24 @@ function onGeminiMsg(st, msg) {
   if ((sc.outputTranscription && sc.outputTranscription.text) || hasAudio) finishMyTurn(st);
   parts.forEach((p) => { if (p.inlineData && p.inlineData.data) playPcm24(st, p.inlineData.data); });
   if (sc.outputTranscription && sc.outputTranscription.text) {
-    if (!st.ai) { st.ai = bubble(log, 'ai', ''); st.aiText = ''; }
+    if (!st.ai) { clearEmpty(log); st.ai = bubble(log, 'ai', ''); st.aiText = ''; }
     st.aiText += sc.outputTranscription.text;
     st.ai.querySelector('.txt').textContent = st.aiText.trim();
     scrollDown(log);
+  }
+  if (sc.turnComplete && st.kind === 'repeat') {
+    const said = st.aiText.trim(); const d = parseDrill(said);
+    if (d) {
+      if (!target || target.sentence !== d.sentence) attempts = 0;
+      target = { sentence: d.sentence, focus: '' };
+      $('target').textContent = d.sentence; $('focus').textContent = '';
+      $('hearAgain').disabled = false; $('hearSlow').disabled = false;
+      if (st.ai) { if (d.before) st.ai.querySelector('.txt').textContent = d.before; else { st.ai.remove(); st.ai = null; } }
+      setStatus('Now repeat the sentence.');
+    }
+    if (st.ai && !st.ai.querySelector('.txt').textContent.trim()) st.ai.remove();
+    st.ai = null; st.aiText = '';
+    return;
   }
   if (sc.turnComplete) {
     finishMyTurn(st);
@@ -333,7 +389,7 @@ function endGemini(msg, isErr = false) {
   cutPlayback(st);
   st.stops.forEach((f) => f());
   if (st.stream) st.stream.getTracks().forEach((t) => t.stop());
-  if (st.me) finishMyTurn(st);
+  if (st.me || st.meStarted) finishMyTurn(st);
   setAudioSession('playback');
   levels.mic = levels.ai = 0;
   setPhase('idle'); renderSpend();
