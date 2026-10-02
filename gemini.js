@@ -339,6 +339,13 @@ function endGemini(msg, isErr = false) {
   setPhase('idle'); renderSpend();
   setStatus(msg || `Call ended. This session so far: ${money(sessionTotal())}.`, isErr);
 }
+/* Reconnect the call with the current settings, keeping the conversation through the resumption handle. */
+function geminiApplySettings() {
+  const st = gl; if (!st || !st.setupDone || !st.handle) return false;
+  const old = st.ws; st.ws = null; try { old.close(); } catch { /* ignore */ }
+  openGeminiSocket(st);
+  return true;
+}
 function sendTypedGemini(text) {
   const st = gl; if (!st || !st.ws || st.ws.readyState !== 1 || !st.setupDone) return false;
   const b = bubble($('log'), 'me', text, { typed: true });

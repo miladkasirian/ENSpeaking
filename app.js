@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.2.1 (2026-10-02)';
+const VERSION = '2.3.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -454,15 +454,19 @@ function tutorRules() {
     off: 'Do not report mistakes: always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".',
   }[S.strict];
 }
+const REPLY_LEN = {
+  short: 'SHORT: one or two short sentences, at most 25 words in total',
+  medium: 'MEDIUM: three to five sentences, about 40 to 70 words in total',
+};
 function talkSystemPrompt(typed) {
-  const len = S.replyLen === 'short' ? '1 or 2 short sentences' : '2 to 4 sentences';
+  const len = REPLY_LEN[S.replyLen] || REPLY_LEN.medium;
   const topic = $('topic').value.trim();
   return [
     `You are a warm, natural English conversation partner for an adult learner at CEFR level ${S.level}.`,
     typed ? 'The learner typed this message. Treat it as conversation practice; ignore capitalization and small typos.'
           : 'This is spoken practice. The message is a speech-to-text transcript, so ignore punctuation, capitalization and spelling. If a word looks like a speech-recognition slip rather than the learner\'s own mistake, ignore it.',
     tutorRules(),
-    `Then reply in English with ${len}, with vocabulary that fits ${S.level}. Keep the conversation going, usually with one question.`,
+    `Then reply in English. Reply length is ${len}. Follow this length strictly. Use vocabulary that fits ${S.level}. Keep the conversation going, usually with one question.`,
     'If the learner asks for a sentence to repeat, give one sentence in "reply" and compare their next message with it.',
     'If the learner asks about English, answer briefly and clearly.',
     topic ? `Conversation topic: ${topic}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.',
@@ -607,21 +611,42 @@ function continueHandsFree() {
 /* ---------- realtime call (WebRTC) ---------- */
 let rt = null;
 function rtInstructions() {
-  const len = S.replyLen === 'short' ? 'one or two short sentences' : 'two to four sentences';
+  const len = REPLY_LEN[S.replyLen] || REPLY_LEN.medium;
   const topic = $('topic').value.trim();
-  const corr = {
-    all: 'When the learner makes a grammar or word mistake, first give a quick, friendly correction by saying the correct version, then continue.',
-    major: 'Correct only clear mistakes that matter, briefly, by saying the correct version, then continue.',
-    off: 'Do not correct mistakes.',
-  }[S.strict];
-  return [
-    `You are a warm, natural English conversation partner for an adult learner at CEFR level ${S.level}.`,
-    'Speak only English, clearly and at a natural but not fast pace.',
-    corr,
-    `Keep each turn to ${len} and usually end with a question.`,
-    'If the learner asks for a sentence to repeat, say one sentence and then listen and tell them how close they were.',
-    topic ? `Topic: ${topic}.` : 'Let the learner choose the topic.',
-  ].join(' ');
+  const speakFix = S.strict !== 'off' && S.sayCorrections;
+  const which = S.strict === 'major'
+    ? 'clear grammar mistakes and wrong words that change or blur the meaning (ignore small style issues)'
+    : 'every grammar mistake, wrong word, wrong verb form, missing or wrong article, and unnatural phrasing';
+  const lines = [
+    `You are an English speaking coach and conversation partner for an adult learner at CEFR level ${S.level}. The learner is practicing speaking to improve.`,
+    'Speak only English, clearly, at a natural but not fast pace.',
+  ];
+  if (speakFix) {
+    lines.push(
+      'YOUR MOST IMPORTANT JOB IS CORRECTING THE LEARNER. Every time the learner finishes speaking, first check what they said for ' + which + '.',
+      'If you find any mistake, you MUST start your reply with a short spoken correction before anything else. Use this pattern: "Quick correction: say ... instead of ...". For example, if they said "Yesterday I go to the park", start with: "Quick correction: say I went, not I go." Then continue the conversation.',
+      'Never skip a correction to keep the conversation flowing, and never pretend a mistake was fine. If there are several mistakes, correct the two most important ones.',
+      'If there is no mistake, do not mention corrections at all; just reply.',
+    );
+  } else {
+    lines.push('Do not correct the learner out loud; just keep the conversation going.');
+  }
+  lines.push(
+    `Reply length is ${len}, not counting the correction. Follow this length strictly in every turn.`,
+    'Usually end with one question to keep the learner talking.',
+    'If the learner asks for a sentence to repeat, say one sentence, then listen and tell them how close they were.',
+    topic ? `Conversation topic: ${topic}.` : 'Let the learner choose the topic. If they have nothing to say, suggest an everyday topic.',
+  );
+  return lines.join(' ');
+}
+/* Practice settings changed during a live call: apply them to the call now. */
+function liveSettingsChanged() {
+  if (rt && rt.dc && rt.dc.readyState === 'open') {
+    rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rtInstructions() } }));
+    setStatus('New settings applied to this call.');
+  } else if (gl) {
+    setStatus(geminiApplySettings() ? 'Applying the new settings to this call...' : 'The new settings start with your next call.');
+  }
 }
 async function startCall() {
   if (!apiKey) { setStatus('Add your OpenAI key in Settings first.', true); openSettings(); return; }
@@ -970,11 +995,12 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
+      if (['level', 'strict', 'replyLen', 'explainLang'].includes(id)) liveSettingsChanged();
     });
   });
   ['sayCorrections', 'autoStop', 'handsFree', 'speakTyped', 'rtWritten'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
-    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); });
+    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); });
   });
   document.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', () => {
     if (r.checked) { endAnyCall(); S.engine = r.value; S[S.provider === 'gemini' ? 'gEngine' : 'oaEngine'] = r.value; saveSettings(); syncEngineUI(); idleStatus(); }
@@ -1043,6 +1069,7 @@ function init() {
     setStatus(S.handsFree ? 'Hands-free is on: I listen again after each answer.' : 'Hands-free is off.');
   });
   document.querySelectorAll('.seg').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
+  $('topic').addEventListener('change', () => liveSettingsChanged());
   $('composer').addEventListener('submit', onTyped);
   let delArmed = null;
   $('newChat').addEventListener('click', () => {
