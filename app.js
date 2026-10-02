@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.10 (2026-10-02)';
+const VERSION = '2.19.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -42,7 +42,7 @@ const DEFAULTS = {
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
-  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', speed: 2, rate: 0.85, volume: 100,
+  voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', speed: 2, rate: 0.85, volume: 100,
   rtModel: 'gpt-realtime-2.1-mini', rtVoice: 'marin', rtWritten: true,
   gLiveModel: 'gemini-3.8-live', gVoice: 'Kore', gemFree: true,
   // per-provider choices, so switching provider brings back what was picked there last time
@@ -172,10 +172,10 @@ async function keepScreenOn(on) {
    every call and with every settings change. */
 function paceRequest() {
   return ['', 'Please speak very slowly with me, word by word, with short pauses, for the whole conversation.',
-    'Please speak slowly with me for the whole conversation.', 'Talk to me casually at a normal pace, without pausing between sentences.',
-    'Talk to me casually and a bit faster, like a native speaker, in one smooth flow without pauses.', 'Talk to me fast and casually, at full native speed, like a friendly American adult, no pauses.'][S.speed] || '';
+    'Please speak slowly with me for the whole conversation.', 'Please speak at a normal pace, without pausing between sentences.',
+    'Please speak a bit faster, like a native speaker, in one smooth flow without pauses.', 'Please speak fast, at full native speed, in one smooth flow without pauses.'][S.speed] || '';
 }
-const withPace = (text) => [text, paceRequest(), ACCENT_ASK[S.accent] || ''].filter(Boolean).join(' ');
+const withPace = (text) => [text, toneOf().ask, paceRequest(), ACCENT_ASK[S.accent] || ''].filter(Boolean).join(' ');
 function setPhase(p) {
   phase = p;
   keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
@@ -583,7 +583,7 @@ function tutorRules() {
 /* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
 function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
-  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${soundNatural()} ${accentRule()}`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${soundNatural()} ${accentRule()} ${toneOf().rule}`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
   const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
@@ -591,7 +591,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} Tone: friendly, casual and polite, like two adults who have just met; never call the learner kid, buddy, pal, dude, bro or any nickname.` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} ${toneOf().rule}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -688,9 +688,36 @@ function prompt(key, extra) { return fillPrompt(rawPrompt(key), promptVars(extra
    worded like a learner asking "speak slowly", which the live models follow well. */
 /* How the partner sounds at every speed: a real American speaking, not text being read out. */
 /* How the partner sounds: casual, spoken American. From normal speed up: no reading pauses at all. */
+/* The kind of conversation (setting "tone"). casual: contractions and reductions like gonna and wanna fit. */
+const NO_NICKNAMES = 'Never call the learner kid, buddy, pal, dude, bro, honey, sweetie or any other nickname.';
+const TONES = {
+  friends: { casual: true, ask: "Let's talk like two good friends.",
+    rule: 'TONE: talk like two good adult friends hanging out: relaxed, warm, joking a little, everyday slang that friends use. You can be playful, but never call the learner kid or anything condescending.' },
+  coworkers: { casual: true, ask: "Let's talk like two coworkers on a coffee break.",
+    rule: 'TONE: talk like two friendly coworkers on a coffee break: casual and relaxed, but still professional and respectful, workplace small talk. ' + NO_NICKNAMES },
+  strangers: { casual: true, ask: "Let's talk like two adults who just met.",
+    rule: 'TONE: talk like two adults who have just met: friendly, casual and polite, never overly familiar, no slang that would be rude between strangers. ' + NO_NICKNAMES },
+  academic: { casual: false, ask: "Let's talk like two people chatting at a university.",
+    rule: 'TONE: talk like two colleagues or graduate students chatting at a university: conversational but thoughtful, clear and precise, using academic words where they fit naturally, polite and respectful. Avoid slang. ' + NO_NICKNAMES },
+  natural: { casual: false, ask: '',
+    rule: 'TONE: natural, neutral everyday American English: neither slangy nor formal, polite and friendly, the way a well-spoken adult talks to anyone. ' + NO_NICKNAMES },
+  business: { casual: false, ask: "Let's talk in a formal business tone.",
+    rule: 'TONE: formal business English, like a professional meeting or a call with a client: polite, clear, well structured, professional vocabulary, no slang and few contractions. Address the learner respectfully. ' + NO_NICKNAMES },
+  interview: { casual: false, ask: "Let's talk like a job interview.",
+    rule: 'TONE: like a job interview: professional, polite and encouraging, clear questions, no slang. ' + NO_NICKNAMES },
+  service: { casual: false, ask: "Let's talk like a customer and a service worker.",
+    rule: 'TONE: like a polite customer-service conversation (a store, a bank, a restaurant, a front desk): courteous, helpful phrases such as "How can I help you?" and "Would you like...". ' + NO_NICKNAMES },
+  teacher: { casual: false, ask: "Talk to me like a friendly teacher.",
+    rule: 'TONE: like a friendly, patient teacher with an adult student: warm, encouraging, clear and respectful. ' + NO_NICKNAMES },
+};
+const toneOf = () => TONES[S.tone] || TONES.strangers;
+/* How the partner sounds: spoken English in the chosen tone. From normal speed up: no reading pauses at all. */
 function soundNatural() {
-  const base = 'DELIVERY: talk casually but politely, like two adults who have just met and are having a friendly, relaxed chat, not like someone reading text: everyday spoken English with contractions, linked words and natural reductions (gonna, wanna, kinda, gotta). Be warm and respectful, never overly familiar: never call the learner kid, buddy, pal, dude, bro, man, honey, sweetie or any other nickname, and no slang that would be rude between strangers. Keep your words natural for the learner\'s level.';
-  if (S.speed <= 2) return base + ' Because the learner asked for a slow pace, short pauses between sentences are fine, but still sound like casual talk.';
+  const t = toneOf();
+  const base = 'DELIVERY: sound like a real American talking, not like someone reading text: fluent, connected speech with natural rhythm and intonation' +
+    (t.casual ? ', contractions, linked words and natural reductions (gonna, wanna, kinda, gotta).' : ', contractions where they fit the tone.') +
+    " Keep your words natural for the learner's level.";
+  if (S.speed <= 2) return base + ' Because the learner asked for a slow pace, short pauses between sentences are fine, but it must still sound like natural talk.';
   return base + ' Keep talking in one smooth flow: no pauses between sentences, no breaths or gaps in the middle of a turn, run your sentences together the way a relaxed native speaker does.' +
     (S.speed >= 4 ? ' Speak quickly and keep the energy up.' : '');
 }
@@ -711,8 +738,8 @@ function speakingPace() {
     'SPEED: speak VERY slowly in every turn, as if the learner just asked "please speak very slowly": clearly pronounce every word and pause briefly between phrases and sentences.',
     'SPEED: speak slowly in every turn, as if the learner just asked "please speak slowly": clear words and a short pause between sentences.',
     'SPEED: speak at a natural, normal conversational pace.',
-    'SPEED: speak a little faster than normal in every turn, like a fluent native speaker in a relaxed chat: smooth, connected speech, words linked together, natural reductions (gonna, wanna, kinda) where an American would use them.',
-    'SPEED: speak fast in every turn, at the full natural speed of a relaxed American adult: smooth, connected, flowing speech with linked words, natural reductions (gonna, wanna, kinda) and relaxed intonation. Never sound like you are reading.',
+    'SPEED: speak a little faster than normal in every turn, like a fluent native speaker: smooth, connected speech with words linked together.',
+    'SPEED: speak fast in every turn, at the full natural speed of a fluent American adult: smooth, connected, flowing speech with linked words. Never sound like you are reading.',
   ][S.speed] || 'Speak clearly, at a natural pace.';
 }
 /* Drill sentence length follows both the level and the Short/Medium setting. */
@@ -1540,7 +1567,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'accent', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'accent', 'tone', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
@@ -1549,7 +1576,7 @@ function bindSettings() {
       if (id === 'chatModel') S[g ? 'gChat' : 'oaChat'] = n.value;
       if (id === 'sttModel') S[g ? 'gStt' : 'oaStt'] = n.value;
       saveSettings(); syncVoiceUI(); renderPrices();
-      if (['level', 'explainLang', 'accent'].includes(id)) liveSettingsChanged();
+      if (['level', 'explainLang', 'accent', 'tone'].includes(id)) liveSettingsChanged();
     });
   });
   ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData'].forEach((id) => {
