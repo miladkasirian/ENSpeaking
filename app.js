@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.13.0 (2026-10-02)';
+const VERSION = '2.13.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -826,12 +826,14 @@ function rtInstructions() {
   return base + ' When you ask the learner to say a corrected sentence or word again, end that turn with exactly: "Repeat after me: <the corrected sentence or word>". Use this pattern for every new try. Do not continue the conversation until the learner says "OK, let\'s continue".';
 }
 /* Practice settings changed during a live call: apply them to the call now. */
-function liveSettingsChanged() {
+function liveSettingsChanged(note) {
   if (rt && rt.dc && rt.dc.readyState === 'open') {
     rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rt.kind === 'repeat' ? repeatInstructions() : rtInstructions(), audio: { input: { transcription: rtTranscription() }, output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
+    if (note) rtSay(note);
     setStatus('New settings applied to this call.');
   } else if (gl) {
-    setStatus(geminiApplySettings() ? 'Applying the new settings to this call...' : 'The new settings start with your next call.');
+    geminiApplySettings(note);
+    setStatus('Switching the call to the new settings...');
   }
 }
 function rtTranscription() {
@@ -1517,8 +1519,12 @@ function init() {
   $('drillContinue').addEventListener('click', () => { unlockAudio(); stopSpeaking(); continueFromDrill(); });
   document.querySelectorAll('#talkModes .tm').forEach((b) => b.addEventListener('click', () => {
     if (S.talkMode === b.dataset.tm) return;
-    S.talkMode = b.dataset.tm; saveSettings(); syncTalkMode(); liveSettingsChanged();
-    if (isOpenTalk() && talkDrill) continueFromDrill();
+    S.talkMode = b.dataset.tm; saveSettings(); syncTalkMode();
+    if (isOpenTalk() && talkDrill) { if (rt || gl) clearTalkDrill(); else continueFromDrill(); }
+    // in a live call: switch the call itself and have the partner say so
+    liveSettingsChanged(isOpenTalk()
+      ? 'From now on this is OPEN TALK: no corrections, and I may also speak Persian. Say briefly that we are in open talk now, then continue our conversation.'
+      : 'From now on this is PRACTICE: correct my mistakes as instructed. Say briefly that we are in practice mode now, then continue our conversation.');
     if (!rt && !gl) setStatus(isOpenTalk() ? 'Open talk: no corrections. Talk or ask anything.' : 'Practice: your mistakes will be corrected.');
   }));
   syncTalkMode();

@@ -182,7 +182,7 @@ function parseDrill(text) {
   return sentence ? { sentence, before: t.slice(0, i).trim() } : null;
 }
 
-async function startGeminiCall(kind = 'talk') {
+async function startGeminiCall(kind = 'talk', opts = {}) {
   if (!gKey) { setStatus('Add your Gemini key in Settings first.', true); openSettings(); return; }
   setPhase('connecting'); setStatus('Connecting to Gemini...');
   setAudioSession('play-and-record');
@@ -196,7 +196,7 @@ async function startGeminiCall(kind = 'talk') {
     outEl.srcObject = outDest.stream; outEl.style.display = 'none'; document.body.appendChild(outEl);
     outEl.play().catch(() => {});
   } catch { outEl = null; outDest = null; }
-  const st = { kind, outEl, outDest, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
+  const st = { kind, carry: opts.carry && kind === 'talk' ? recentConversation() : '', note: opts.note || '', outEl, outDest, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
     t0: 0, timer: null, handle: null, basic: false, setupDone: false, closing: false, reconnects: 0, me: null, meText: '', ai: null, aiText: '', stops: [] };
   gl = st;
   try {
@@ -235,7 +235,7 @@ function geminiSetup(st) {
   const setup = {
     model: 'models/' + S.gLiveModel,
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: S.gVoice } } } },
-    systemInstruction: { parts: [{ text: st.kind === 'repeat' ? repeatInstructions() : rtInstructions() }] },
+    systemInstruction: { parts: [{ text: (st.kind === 'repeat' ? repeatInstructions() : rtInstructions()) + st.carry }] },
     inputAudioTranscription: st.basic ? {} : { mode: 'VERBATIM' },
     outputAudioTranscription: {},
   };
@@ -325,10 +325,10 @@ function onGeminiMsg(st, msg) {
     setPhase('call');
     if (st.kind === 'repeat') {
       setStatus('Live drill with Gemini. Listen, then repeat. Tap the circle to stop.');
-      if (!st.started) { st.started = true; geminiSay("Hi! Let's start."); }
+      if (!st.started) { st.started = true; geminiSay(st.note || "Hi! Let's start."); }
     } else {
       setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
-      if (!st.started) { st.started = true; geminiSay('Hi!'); }
+      if (!st.started) { st.started = true; geminiSay(st.note || 'Hi!'); }
     }
     return;
   }
@@ -406,11 +406,20 @@ function endGemini(msg, isErr = false) {
   setStatus(msg || `Call ended. This session so far: ${money(sessionTotal())}.`, isErr);
 }
 /* Reconnect the call with the current settings, keeping the conversation through the resumption handle. */
-function geminiApplySettings() {
-  const st = gl; if (!st || !st.setupDone || !st.handle) return false;
-  const old = st.ws; st.ws = null; try { old.close(); } catch { /* ignore */ }
-  openGeminiSocket(st);
+/* New settings during a call: a resumed session keeps following its old instructions, so the call is
+   restarted as a fresh session that gets the new instructions plus the last few exchanges. */
+function geminiApplySettings(note) {
+  const st = gl; if (!st) return false;
+  const kind = st.kind;
+  endGemini(' ');
+  startGeminiCall(kind, { carry: true, note: note || (kind === 'repeat' ? "Let's continue the drill with the new settings." : "Let's continue our conversation.") });
   return true;
+}
+function recentConversation() {
+  const turns = history.slice(-10);
+  if (!turns.length) return '';
+  return '\n\nEarlier in this same conversation (continue it naturally from here; do not greet again and do not ask for the topic again):\n' +
+    turns.map((t) => (t.role === 'user' ? 'Learner: ' : 'You: ') + String(t.content).slice(0, 400)).join('\n');
 }
 function sendTypedGemini(text) {
   const st = gl; if (!st || !st.ws || st.ws.readyState !== 1 || !st.setupDone) return false;
