@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.5 (2026-10-02)';
+const VERSION = '2.19.6 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -180,6 +180,7 @@ function paceRequest() {
 const withPace = (text) => [text, toneOf().ask, paceRequest(), ACCENT_ASK[S.accent] || ''].filter(Boolean).join(' ');
 function setPhase(p) {
   phase = p;
+  const cut = document.getElementById('cutIn'); if (cut) cut.hidden = p !== 'call';
   keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
   const mic = $('mic');
   const glyph = { idle: 'mic', rec: 'stop', think: 'none', speak: 'mic', connecting: 'none', call: 'call' }[p];
@@ -1807,6 +1808,11 @@ function init() {
   $('spendBtn').addEventListener('click', () => { openSettings(); });
   $('engineChip').addEventListener('click', () => { openSettings(); setTimeout(() => $('engineGroup').scrollIntoView({ block: 'start' }), 50); });
   $('volume').value = S.volume; applyVolume();
+  $('cutIn').addEventListener('click', () => {
+    if (gl) cutInGemini();
+    else if (rt && rt.dc && rt.dc.readyState === 'open') { try { rt.dc.send(JSON.stringify({ type: 'response.cancel' })); rt.dc.send(JSON.stringify({ type: 'output_audio_buffer.clear' })); } catch { /* ignore */ } }
+    buzz(15); setStatus('Go ahead, I am listening.');
+  });
   $('volBtn').addEventListener('click', (e) => { e.stopPropagation(); const open = $('volPop').hidden; $('volPop').hidden = !open; $('volBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); });
   $('volPop').addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', () => { if (!$('volPop').hidden) { $('volPop').hidden = true; $('volBtn').setAttribute('aria-expanded', 'false'); } });

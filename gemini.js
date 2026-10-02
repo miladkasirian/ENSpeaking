@@ -389,23 +389,41 @@ function onMicChunk(st, f32) {
 const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
   const now = st.ctx.currentTime;
-  // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
   // the voice comes out of the speaker a bit later than scheduled (the echo-cancellation path and the
   // iPhone's audio output add delay), so the last word would leak back without this margin
-  const talking = st.playT && now < st.playT + 0.9;
+  const talking = st.playT && now < st.playT + 1.2;
   if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.loud = 0; return true; }
-  if (!st.replyStart) st.replyStart = now;
+  if (!st.replyStart) { st.replyStart = now; st.echoPeak = 0; st.echoChecked = false; }
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
-  const floor = st.echoFloor || 0.015;
-  const learning = now - st.replyStart < 0.15; // very start of a reply: only learn the echo level
-  // Your voice is louder at the mic than the echo of the speaker: twice the echo level for 0.08 s opens the
-  // mic, and the 0.32 s before that is sent too, so nothing of what you say is lost.
-  if (!learning && rms > Math.max(0.025, floor * 2)) { st.loud = (st.loud || 0) + 1; if (st.loud >= 2) { st.gateOpenUntil = now + 1.2; st.flushRing = true; return true; } return false; }
-  st.loud = 0;
-  st.echoFloor = floor * 0.9 + rms * 0.1; // average echo level during this reply
+  const t = now - st.replyStart;
+  // 1) Measure, during the first 0.6 s of each reply, how much of the partner's voice reaches the mic.
+  //    If the phone's echo cancellation removes it (almost nothing arrives), the mic stays fully open:
+  //    you can talk as softly as you like, even over the partner.
+  if (t < 0.6) st.echoPeak = Math.max(st.echoPeak, rms);
+  else if (!st.echoChecked) {
+    st.echoChecked = true; st.aecOk = st.echoPeak < 0.012;
+    if (!st.aecReported) {
+      st.aecReported = true;
+      setStatus(st.aecOk ? 'Echo cancellation works on this phone: you can talk softly, even while the partner speaks.'
+        : 'This phone does not cancel the partner\'s echo from the speaker. To cut in while it speaks, tap the hand button (or use headphones).');
+    }
+  }
+  if (st.echoChecked && st.aecOk) return true;
+  // 2) No echo cancellation: the partner's own voice is in the mic and cannot be told apart from yours by
+  //    loudness (its loud moments opened the mic and got typed as yours). So while it speaks the mic is held
+  //    back completely; the hand button (cutIn) stops the partner and opens the mic at once.
   return false;
 }
+/* Hand button: stop the partner right now and listen to you. */
+function cutInGemini() {
+  const st = gl; if (!st || !st.ctx) return;
+  cutPlayback(st); st.dropAudio = true; st.inReply = false;
+  st.gateOpenUntil = st.ctx.currentTime + 4; st.flushRing = false;
+  st.ws && st.ws.readyState === 1 && st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+  st.paused = true;
+}
 function playPcm24(st, b64) {
+  if (st.dropAudio) return; // the rest of a reply you cut off
   const bytes = b64ToBytes(b64); const n = bytes.length >> 1; if (!n) return;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const ab = st.ctx.createBuffer(1, n, 24000); const ch = ab.getChannelData(0);
@@ -477,7 +495,7 @@ function onGeminiMsg(st, msg) {
   if (!sc) return;
   const log = st.kind === 'repeat' ? $('repeatLog') : $('log');
   if (sc.interrupted) {
-    cutPlayback(st); st.inReply = false;
+    cutPlayback(st); st.inReply = false; st.dropAudio = false;
     // Gemini stops only when it thinks you started talking; say so, in case it was a noise
     if (st.kind === 'talk') setStatus('The partner stopped because it heard something. If that was a noise, just say "go on".');
   }
@@ -518,7 +536,7 @@ function onGeminiMsg(st, msg) {
     return;
   }
   if (sc.turnComplete) {
-    st.inReply = false;
+    st.inReply = false; st.dropAudio = false;
     if (!st.underran && st.jitter > 0.15) st.jitter = Math.max(0.15, st.jitter - 0.05); // smooth again: shrink the buffer
     st.underran = false;
     finishMyTurn(st);

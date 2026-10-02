@@ -484,3 +484,9 @@ dialog#guide {
 }
 .vol-pop input { flex: 1; min-width: 0; }
 .vol-pop b { font: 650 14px/1 var(--display); min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* hand button: stop the partner and talk (shown during live calls) */
+.cut-slot { position: relative; width: 48px; height: 48px; flex: none; }
+.cut-slot > * { position: absolute; inset: 0; }
+#cutIn { color: var(--you); border-color: color-mix(in srgb, var(--you) 55%, var(--line)); }
+#cutIn:active { background: var(--you-soft); }
