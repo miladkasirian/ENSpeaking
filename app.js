@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.21.5 (2026-10-02)';
+const VERSION = '2.22.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, cutSens: 10,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -1603,6 +1603,9 @@ function bindSettings() {
   $('strict').value = S.strict; showStrict();
   $('strict').addEventListener('input', () => { S.strict = Number($('strict').value); showStrict(); saveSettings(); });
   $('strict').addEventListener('change', () => liveSettingsChanged());
+  const showCut = () => { $('cutSensVal').textContent = `${S.cutSens}`; $('cutSensHint').textContent = cutSensText(S.cutSens); };
+  $('cutSens').value = S.cutSens; showCut();
+  $('cutSens').addEventListener('input', () => { S.cutSens = Number($('cutSens').value); showCut(); saveSettings(); });
   const showLen = () => { $('replyLenVal').textContent = `${S.replyLen}: ${LEN_NAMES[S.replyLen]}`; };
   $('replyLen').value = S.replyLen; showLen();
   $('replyLen').addEventListener('input', () => { S.replyLen = Number($('replyLen').value); showLen(); saveSettings(); });

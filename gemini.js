@@ -349,8 +349,10 @@ function onMicChunk(st, f32) {
   // unless "talk over the partner" is on (for headphones).
   const pcm = new DataView(new ArrayBuffer(st.q.length * 2));
   let sum = 0;
-  for (let i = 0; i < st.q.length; i++) { const v = Math.max(-1, Math.min(1, st.q[i])); sum += v * v; pcm.setInt16(i * 2, v * 0x7fff, true); }
+  let zc = 0;
+  for (let i = 0; i < st.q.length; i++) { const v = Math.max(-1, Math.min(1, st.q[i])); sum += v * v; pcm.setInt16(i * 2, v * 0x7fff, true); if (i && (v >= 0) !== (st.q[i - 1] >= 0)) zc++; }
   const rms = Math.sqrt(sum / st.q.length);
+  st.lastZcr = zc / st.q.length; // how often the sound crosses zero: a human voice is low to middle, hiss and clicks are high
   st.lastRms = rms; // for the audio-levels readout
   const chunk = bytesToB64(new Uint8Array(pcm.buffer)); const sec = st.q.length / 16000;
   st.q = [];
@@ -405,14 +407,17 @@ function echoGate(st, rms, chunk) {
         : 'Phone speaker: to cut in while the partner speaks, tap the hand button. When it is quiet, just talk.');
     }
   }
+  const lv = cutLevel();
+  if (!lv) return false; // setting 1: the mic is off while the partner speaks; talk when it has finished
   if (st.echoChecked && st.aecOk) return true;
   // 2) While the partner speaks the phone turns your mic down (your voice reads about 0.03 instead of 0.05).
   //    So your voice from BARGE_LEVEL up, for 0.12 s and clearly above the partner's own echo, does what the
   //    hand button does: the partner stops at once and your words (with the 0.4 s before) go to Gemini.
   const echo = st.echoAvg ?? 0;
-  if (rms >= Math.max(BARGE_LEVEL, echo * 1.6)) {
+  const voiceLike = !lv.voice || (st.lastZcr > 0.01 && st.lastZcr < 0.25); // human-voice check from setting 7 down
+  if (rms >= Math.max(lv.level, echo * lv.echo) && voiceLike) {
     st.loud = (st.loud || 0) + 1;
-    if (st.loud >= 3) { st.loud = 0; cutInGemini(true); return true; }
+    if (st.loud >= lv.chunks) { st.loud = 0; cutInGemini(true); return true; }
     return false;
   }
   st.loud = 0;
@@ -421,6 +426,26 @@ function echoGate(st, rms, chunk) {
 }
 /* Hand button: stop the partner right now and listen to you. */
 const BARGE_LEVEL = 0.03;
+/* Setting "cutSens" (1 to 10): how easily your voice stops the partner while it speaks.
+   level: how loud your voice must be; chunks: for how long (x 0.04 s); echo: how much louder than the
+   partner's own echo; voice: also check that it sounds like a human voice (not a click, hiss or bang). */
+const CUT_LEVELS = [null, null,
+  { level: 0.09, chunks: 13, echo: 4.0, voice: true },
+  { level: 0.075, chunks: 10, echo: 3.6, voice: true },
+  { level: 0.06, chunks: 8, echo: 3.2, voice: true },
+  { level: 0.05, chunks: 6, echo: 2.8, voice: true },
+  { level: 0.045, chunks: 5, echo: 2.5, voice: true },
+  { level: 0.04, chunks: 4, echo: 2.2, voice: true },
+  { level: 0.036, chunks: 4, echo: 2.0, voice: false },
+  { level: 0.033, chunks: 3, echo: 1.8, voice: false },
+  { level: 0.03, chunks: 3, echo: 1.6, voice: false },
+];
+const cutLevel = () => CUT_LEVELS[Math.max(1, Math.min(10, Number(S.cutSens) || 10))];
+function cutSensText(n) {
+  const l = CUT_LEVELS[n];
+  if (!l) return 'Off: your mic is closed while the partner speaks. Talk when it has finished (the hand button still works).';
+  return `Your voice from ${l.level.toFixed(3)} for ${(l.chunks * 0.04).toFixed(2)} s, ${l.echo}x louder than its echo` + (l.voice ? ', and it must sound like a human voice' : '') + ', stops the partner.';
+}
 function cutInGemini(byVoice) {
   const st = gl; if (!st || !st.ctx) return;
   cutPlayback(st); st.dropAudio = true; st.inReply = false;
