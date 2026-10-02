@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.19.7 (2026-10-02)';
+const VERSION = '2.20.0 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: true, aiNoise: true, showLevels: false,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false,
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -77,6 +77,7 @@ if (!S.defaults2) {
 if (!S.defaults3) { S.accent = 'boston'; S.defaults3 = true; store.set('ens.settings', S); } // Boston accent by default, applied once
 if (!S.defaults6) { S.saveData = true; S.aiNoise = true; S.defaults6 = true; store.set('ens.settings', S); } // data saver and AI noise removal on, applied once
 if (!S.defaults4) { S.gVoice = 'Charon'; S.defaults4 = true; store.set('ens.settings', S); } // Charon voice by default, applied once
+S.saveData = false; S.aiNoise = false; // these layers delayed and dropped soft speech; removed
 S.speed = Math.max(1, Math.min(5, Math.round(Number(S.speed)))); S.rate = SPEED_RATES[S.speed];
 S.prices = Object.assign({}, S.prices);
 function applyProvider() {
@@ -1586,7 +1587,7 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'saveData', 'aiNoise', 'showLevels'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
     n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
@@ -1814,7 +1815,7 @@ function init() {
     const now = st.ctx.currentTime; const talking = st.playT && now < st.playT + 1.2;
     const open = !talking || now < (st.gateOpenUntil || 0) || (st.echoChecked && st.aecOk);
     box.hidden = false;
-    box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} · echo peak ${(st.echoPeak || 0).toFixed(3)} · partner ${talking ? 'speaking' : 'quiet'} · mic ${open ? (S.saveData && st.paused ? 'waiting for voice' : 'SENT') : 'held back'}${st.loopback ? ' · echo path on' : ''}${S.aiNoise && rnnoiseCtx ? ' · AI noise on' : ''}`;
+    box.textContent = `mic ${(st.lastRms || 0).toFixed(3)} · echo peak ${(st.echoPeak || 0).toFixed(3)} · partner ${talking ? 'speaking' : 'quiet'} · mic ${open ? 'SENT' : 'held back'}`;
   }, 250);
   $('volume').value = S.volume; applyVolume();
   $('cutIn').addEventListener('click', () => {

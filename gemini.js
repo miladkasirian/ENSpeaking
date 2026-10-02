@@ -251,20 +251,13 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
     const src = ctx.createMediaStreamSource(st.stream);
     const tap = new AudioWorkletNode(ctx, 'pcm-tap');
     const mute = ctx.createGain(); mute.gain.value = 0;
-    // Filter before anything is sent: low rumble/hum (fans, traffic, AC) is cut; up to 7.5 kHz is kept,
-    // because consonants like s, f and th live up there and the speech recognition needs them. The browser's own noise suppression is also on.
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110; hp.Q.value = 0.7;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7500; lp.Q.value = 0.7;
-    const ai = await rnnoiseNode(ctx); // AI noise removal: keeps the human voice, removes background noise
-    if (gl !== st) { releaseMic(true); return; }
-    if (ai) { src.connect(ai); ai.connect(hp); } else src.connect(hp);
-    hp.connect(lp); lp.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
-    st.stops.push(() => { try { hp.disconnect(); lp.disconnect(); if (ai) { ai.disconnect(); ai.port.postMessage('destroy'); } } catch { /* ignore */ } });
+    // raw microphone (only the phone's own echo cancellation, noise suppression and gain), nothing in between
+    src.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
     tap.port.onmessage = (e) => onMicChunk(st, e.data);
     st.stops.push(() => { try { tap.port.onmessage = null; src.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* ignore */ } });
     // replies go through one gain node so they can be metered and cut on interruption
     st.out = ctx.createGain(); st.out.gain.value = volGain();
-    if (st.outDest && st.outEl && !st.outEl.paused) { st.out.connect(st.outDest); echoLoopback(st); } else st.out.connect(ctx.destination);
+    if (st.outDest && st.outEl && !st.outEl.paused) st.out.connect(st.outDest); else st.out.connect(ctx.destination);
     const an = ctx.createAnalyser(); an.fftSize = 512; st.out.connect(an);
     const buf = new Float32Array(an.fftSize); let alive = true;
     const tick = () => { if (!alive) return; an.getFloatTimeDomainData(buf); let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i]; levels.ai = Math.min(1, Math.sqrt(s / buf.length) * 9); requestAnimationFrame(tick); };
@@ -291,7 +284,9 @@ function geminiSetup(st) {
     setup.sessionResumption = st.handle ? { handle: st.handle } : {};
     // long talks: let Gemini drop the oldest audio instead of ending the session when its memory fills up
     setup.contextWindowCompression = { slidingWindow: {} };
-    // speech detection at Gemini's default (fast) sensitivity: noise is handled by the app's filter and echo gate
+    // Gemini's speech detection at its most sensitive: soft voices and short sounds like "uh-huh" count,
+    // and your turn ends quickly after you stop (less delay)
+    setup.realtimeInputConfig = { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 20, silenceDurationMs: 500 } };
   }
   else if (st.handle) setup.sessionResumption = { handle: st.handle };
   return { setup };
@@ -358,31 +353,18 @@ function onMicChunk(st, f32) {
   const chunk = bytesToB64(new Uint8Array(pcm.buffer)); const sec = st.q.length / 16000;
   st.q = [];
   const send = (data, s = sec) => { st.sentSec += s; st.ws.send(JSON.stringify({ realtimeInput: { audio: { data, mimeType: 'audio/pcm;rate=16000' } } })); };
-  // the last 0.32 s, so the start of your words is not lost when sending resumes
-  st.ring = (st.ring || []).concat(chunk).slice(-8);
-  const pause = () => {
-    // "Save data": tell Gemini the mic stream paused instead of streaming silence
-    if (S.saveData) { if (!st.paused) st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); }
-    else send(SILENCE_40MS, 0.04);
-    st.paused = true;
-  };
-  const resume = (withRing) => {
-    if (withRing) st.ring.forEach((c) => send(c, 0.04)); else send(chunk);
-    st.ring = []; st.paused = false;
-  };
-  if (!echoGate(st, rms, chunk)) { pause(); return; }
-  if (st.flushRing) { st.flushRing = false; resume(true); return; } // you started talking over the partner
-  if (S.saveData) {
-    // send only while you speak (plus 1 s after, so Gemini hears you finish)
-    const now = st.ctx.currentTime; const floor = st.noiseFloor ?? 0.001;
-    // very sensitive, so even a soft voice goes out at once (with AI noise removal the background is near zero)
-    const voice = rms > Math.max(S.aiNoise ? 0.002 : 0.006, floor * 2);
-    // background level: follows a quieter room at once, a louder one only slowly
-    if (voice) st.lastVoice = now; else st.noiseFloor = rms < floor ? rms : floor * 0.97 + rms * 0.03;
-    if (!st.lastVoice || now - st.lastVoice > 1.0) { pause(); return; }
-    if (st.paused) { resume(true); return; }
-  } else if (st.paused) { st.paused = false; }
-  send(chunk);
+  const now = st.ctx.currentTime;
+  // the last half second, so nothing you say right after the partner stops is lost
+  st.ring = (st.ring || []).concat({ t: now, d: chunk }).slice(-12);
+  if (!echoGate(st, rms, chunk)) { send(SILENCE_40MS, 0.04); st.paused = true; return; } // partner speaking: its echo stays out
+  if (st.flushRing) { st.flushRing = false; st.ring.forEach((r) => send(r.d, 0.04)); st.ring = []; st.paused = false; return; }
+  if (st.paused) {
+    // the partner just finished: send what you said from the moment its voice ended, then go on live
+    const since = (st.playT || 0) + 0.3;
+    st.ring.filter((r) => r.t > since).forEach((r) => send(r.d, 0.04));
+    st.ring = []; st.paused = false; return;
+  }
+  send(chunk); // everything else goes out raw and at once, however softly you speak
 }
 /* Echo gate. On the phone speaker the partner's voice comes back into the mic, and the browser cannot
    cancel it (the voice arrives over a WebSocket, outside the browser's echo canceller). So while the
@@ -394,7 +376,7 @@ function echoGate(st, rms, chunk) {
   const now = st.ctx.currentTime;
   // the voice comes out of the speaker a bit later than scheduled (the echo-cancellation path and the
   // iPhone's audio output add delay), so the last word would leak back without this margin
-  const talking = st.playT && now < st.playT + 1.2;
+  const talking = st.playT && now < st.playT + 0.6;
   if (!talking) { st.replyStart = 0; st.gateOpenUntil = 0; st.loud = 0; return true; }
   if (!st.replyStart) { st.replyStart = now; st.echoPeak = 0; st.echoChecked = false; }
   if (now < st.gateOpenUntil) { st.gateOpenUntil = now + 1.2; return true; } // you are talking: keep it open
@@ -423,7 +405,7 @@ function echoGate(st, rms, chunk) {
 function cutInGemini() {
   const st = gl; if (!st || !st.ctx) return;
   cutPlayback(st); st.dropAudio = true; st.inReply = false;
-  st.gateOpenUntil = st.ctx.currentTime + 4; st.flushRing = false;
+  st.gateOpenUntil = st.ctx.currentTime + 4; st.flushRing = false; st.ring = [];
   st.ws && st.ws.readyState === 1 && st.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
   st.paused = true;
 }
