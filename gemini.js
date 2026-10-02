@@ -493,52 +493,50 @@ function finishMyTurn(st) {
     });
   } else { heardTag(b, audio.length ? 'live call only (too short to check)' : 'live call only (no audio kept)'); if (check) writtenCorrections(text, b, turnNo); }
 }
-/* The learner's turn, written down by gemini-3.8-flash from the exact audio that was sent to Gemini Live. */
-/* When the quick live transcript and the careful one differ, show both under your words, with the words that
-   differ marked, so you can see which words were heard unclearly. */
-/* A small note under your words: which transcription produced them. */
-function heardTag(b, msg) {
-  let t = b.querySelector('.heard-tag'); if (!t) { t = el('div', 'heard-tag'); b.appendChild(t); }
-  t.textContent = msg;
-}
-function showBothHeard(b, quick, better) {
-  const tok = (s) => s.trim().split(/\s+/).filter(Boolean);
-  const key = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, '');
-  const q = tok(quick), c = tok(better);
-  const { tHit, sHit } = align(c.map(key), q.map(key));
-  const txt = b.querySelector('.txt');
-  if (tHit.every(Boolean) && sHit.every(Boolean)) { txt.textContent = better; return true; } // same words: nothing to compare
-  const mark = (ws, hit) => ws.map((w, i) => (hit[i] ? esc(w) : `<mark>${esc(w)}</mark>`)).join(' ');
-  txt.innerHTML = mark(c, tHit);
-  let alt = b.querySelector('.heard-alt'); if (!alt) { alt = el('div', 'heard-alt'); b.appendChild(alt); }
-  alt.innerHTML = `<span>Live call heard:</span> ${mark(q, sHit)}`;
-  return false;
-}
-/* Only English or Persian may appear in what you said. Words in any other script are dropped; Persian stays
-   only when there are at least two Persian words (one stray Persian word is a mishearing). */
-function cleanScript(text) {
-  const ws = String(text || '').trim().split(/\s+/).filter(Boolean);
-  const latin = (w) => /^[\p{Script=Latin}\p{N}\p{P}\p{S}]+$/u.test(w);
-  const persian = (w) => /^[\p{Script=Arabic}\p{N}\p{P}\u200c]+$/u.test(w) && /\p{Script=Arabic}/u.test(w);
-  const faCount = ws.filter(persian).length;
-  return ws.filter((w) => latin(w) || (persian(w) && faCount >= 2 && S.langs !== 'en')).join(' ');
-}
+/* The learner's turn, written down carefully from the exact audio that was sent to Gemini Live.
+   Setting "carefulStt": 'gemini' (free: tries several Gemini models, skipping any that just hit the free
+   limit), 'openai' (gpt-4o-transcribe, most accurate for accents, paid) or 'off'. */
+const CAREFUL_GEMINI = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const limitedUntil = {}; // model -> time when it can be tried again after a free-limit error
 async function betterTranscript(chunks) {
+  if (S.carefulStt === 'off') throw new Error('turned off in Settings');
   const parts = chunks.map(b64ToBytes); const len = parts.reduce((n, p) => n + p.length, 0);
   const wav = new DataView(new ArrayBuffer(44 + len)); const w = (o, s) => { for (let i = 0; i < s.length; i++) wav.setUint8(o + i, s.charCodeAt(i)); };
   w(0, 'RIFF'); wav.setUint32(4, 36 + len, true); w(8, 'WAVE'); w(12, 'fmt '); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true);
   wav.setUint32(24, 16000, true); wav.setUint32(28, 32000, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true); w(36, 'data'); wav.setUint32(40, len, true);
   let o = 44; parts.forEach((p) => { new Uint8Array(wav.buffer, o, p.length).set(p); o += p.length; });
+  const bytes = new Uint8Array(wav.buffer); const seconds = len / 32000;
   const lang = S.langs === 'en'
     ? 'The speaker speaks English. Write English only.'
     : 'The speaker is an English learner and almost always speaks English: write English. Write Persian (in Persian script) only for words that are clearly Persian, and only when there are at least two Persian words. Any word you are not sure about: write your best English guess. Never use any other language or script.';
-  const text = await Promise.race([
-    geminiGenerate('gemini-3.8-flash', 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang,
-      [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(new Uint8Array(wav.buffer)) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
-      300, false, 'stt'),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 8000)),
-  ]);
-  return String(text || '').replace(/^["\s]+|["\s]+$/g, '').trim();
+  const rule = 'Transcribe exactly what the speaker says, word for word, keeping every grammar mistake, wrong word and filler like um, uh, uh-huh, mm-hmm. Do not correct, translate or comment. ' + lang;
+  const clean = (t) => String(t || '').replace(/^["\s]+|["\s]+$/g, '').trim();
+  const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('too slow')), ms));
+  if (S.carefulStt === 'openai') {
+    if (!apiKey) throw new Error('add your OpenAI key in Settings');
+    const fd = new FormData();
+    fd.append('file', new Blob([bytes], { type: 'audio/wav' }), 'speech.wav');
+    fd.append('model', 'gpt-4o-transcribe'); fd.append('response_format', 'json'); fd.append('prompt', rule);
+    if (S.langs === 'en') fd.append('language', 'en');
+    const res = await Promise.race([fetch(API + '/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + apiKey }, body: fd }), timeout(10000)]);
+    if (!res.ok) throw await apiError(res);
+    addCost('stt', (seconds / 60) * 0.006, { sttSec: seconds });
+    return clean((await res.json()).text);
+  }
+  let last;
+  for (const model of CAREFUL_GEMINI) {
+    if ((limitedUntil[model] || 0) > Date.now()) continue;
+    try {
+      const text = await Promise.race([geminiGenerate(model, rule,
+        [{ role: 'user', parts: [{ inlineData: { mimeType: 'audio/wav', data: bytesToB64(bytes) } }, { text: 'Transcribe this audio. Output only the transcript. If there is no speech, output nothing.' }] }],
+        300, false, 'stt'), timeout(8000)]);
+      return clean(text);
+    } catch (e) {
+      last = e;
+      if (/free limit|429|quota|exhausted/i.test(String(e && e.message))) limitedUntil[model] = Date.now() + 60000; // rest it for a minute
+    }
+  }
+  throw last || new Error('all free Gemini models are at their limit right now');
 }
 function onGeminiMsg(st, msg) {
   if (msg.setupComplete) {

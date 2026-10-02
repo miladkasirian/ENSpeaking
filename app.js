@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.21.3 (2026-10-02)';
+const VERSION = '2.21.4 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -39,7 +39,7 @@ const RT_VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 
 const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
-  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false,
+  sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, carefulStt: 'gemini',
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -1575,7 +1575,7 @@ function bindSettings() {
   $('apiKey').value = apiKey;
   $('apiKey').addEventListener('change', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); if (apiKey) checkKey(); });
   $('checkKey').addEventListener('click', () => { apiKey = $('apiKey').value.trim(); store.set('ens.key', apiKey); checkKey(); });
-  ['level', 'explainLang', 'accent', 'tone', 'langs', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
+  ['level', 'explainLang', 'accent', 'tone', 'langs', 'carefulStt', 'voiceEngine', 'chatModel', 'sttModel', 'rtModel', 'openaiVoice', 'rtVoice', 'gLiveModel', 'gVoice'].forEach((id) => {
     const n = $(id); if (n.tagName === 'SELECT' && !n.options.length) return;
     n.value = S[id];
     n.addEventListener('change', () => {
