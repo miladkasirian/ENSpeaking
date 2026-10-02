@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.18.5 (2026-10-02)';
+const VERSION = '2.18.6 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -166,6 +166,15 @@ async function keepScreenOn(on) {
     } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
   } catch { wakeLock = null; }
 }
+/* The speed setting, said the way a learner would ask for it. Live models follow a request in the
+   conversation much better than a line in their instructions, so it goes with the first message of
+   every call and with every settings change. */
+function paceRequest() {
+  return ['', 'Please speak very slowly with me, word by word, with short pauses, for the whole conversation.',
+    'Please speak slowly with me for the whole conversation.', 'Please speak at a normal, natural pace with me.',
+    'You can speak a bit faster than normal with me.', 'Please speak fast with me, at full native speed.'][S.speed] || '';
+}
+const withPace = (text) => (paceRequest() ? text + ' ' + paceRequest() : text);
 function setPhase(p) {
   phase = p;
   keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
@@ -1028,7 +1037,7 @@ function rtInstructions() {
 function liveSettingsChanged(note) {
   if (rt && rt.dc && rt.dc.readyState === 'open') {
     rt.dc.send(JSON.stringify({ type: 'session.update', session: { type: 'realtime', instructions: rt.kind === 'repeat' ? repeatInstructions() : rtInstructions(), audio: { input: { transcription: rtTranscription() }, output: { speed: Math.max(0.25, Math.min(1.5, Number(S.rate) || 1)) } } } }));
-    if (note) rtSay(note);
+    rtSay(withPace(note || "Let's continue."));
     setStatus('New settings applied to this call.');
   } else if (gl) {
     geminiApplySettings(note);
@@ -1081,8 +1090,8 @@ async function startCall(kind = 'talk') {
     dc.onopen = () => {
       state.t0 = performance.now();
       setPhase('call');
-      if (kind === 'repeat') { setStatus('Live drill. Listen, then repeat. Tap the circle to stop.'); rtSay("Hi! Let's start."); }
-      else { setStatus('You are live. Just talk. Tap the circle to hang up.'); rtSay('Hi!'); }
+      if (kind === 'repeat') { setStatus('Live drill. Listen, then repeat. Tap the circle to stop.'); rtSay(withPace("Hi! Let's start.")); }
+      else { setStatus('You are live. Just talk. Tap the circle to hang up.'); rtSay(withPace('Hi!')); }
       state.timer = setInterval(() => {
         if (rt !== state) return;
         const sec = (performance.now() - state.t0) / 1000;

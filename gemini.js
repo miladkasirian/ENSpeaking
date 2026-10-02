@@ -410,10 +410,10 @@ function onGeminiMsg(st, msg) {
     setPhase('call');
     if (st.kind === 'repeat') {
       setStatus('Live drill with Gemini. Listen, then repeat. Tap the circle to stop.');
-      if (!st.started) { st.started = true; geminiSay(st.note || "Hi! Let's start."); }
+      if (!st.started) { st.started = true; geminiSay(withPace(st.note || "Hi! Let's start.")); }
     } else {
       setStatus('You are live with Gemini. Just talk. Tap the circle to hang up.');
-      if (!st.started) { st.started = true; geminiSay(st.note || 'Hi!'); }
+      if (!st.started) { st.started = true; geminiSay(withPace(st.note || 'Hi!')); }
     }
     return;
   }
