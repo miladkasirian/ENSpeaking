@@ -342,7 +342,6 @@ function onMicChunk(st, f32) {
    "Talk over the partner" (headphones) turns the gate off. */
 const SILENCE_40MS = bytesToB64(new Uint8Array(1280));
 function echoGate(st, rms, chunk) {
-  if (S.bargeIn) return true;
   const now = st.ctx.currentTime;
   // the iPhone plays the voice through an <audio> element, which adds delay: keep the gate longer there
   const talking = st.playT && now < st.playT + 0.5;
