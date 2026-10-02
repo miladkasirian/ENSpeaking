@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.14.0 (2026-10-02)';
+const VERSION = '2.14.1 (2026-10-02)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -706,6 +706,12 @@ function setTalkDrill(sentence, reply) {
   $('drillText').textContent = sentence; $('drillBar').hidden = false;
 }
 function clearTalkDrill() { talkDrill = null; $('drillBar').hidden = true; }
+/* After "OK, continue" the sentence is finished: replies, reminders and checks that were
+   already on their way must not pin it (or anything else) again. */
+let drillDoneAt = -1; // userTurnNo when you last tapped OK, continue
+const drillDone = new Set();
+const drillKey = (s) => words(s).join(' ');
+const drillAllowed = (sentence, turnNo) => turnNo > drillDoneAt && !drillDone.has(drillKey(sentence));
 
 /* Live calls: the app, not the model, decides when a sentence is being practiced.
    userTurnNo counts your finished utterances; lastAiTurn remembers the partner's last full reply. */
@@ -735,6 +741,7 @@ function remindDrill(first) {
 /* The checker found a mistake in what you just said: pin the corrected sentence and make sure the partner works on it. */
 function onLiveMistake(sentence, turnNo) {
   if (!practiceLoop() || !(rt || gl) || !sentence) return;
+  if (!drillAllowed(sentence, turnNo)) return; // a check that finished after you tapped OK, continue
   if (talkDrill && talkDrill.sentence !== sentence && talkDrill.tries) return; // already practicing another sentence
   setTalkDrill(sentence);
   if (lastAiTurn.userTurn === turnNo) { if (!mentions(lastAiTurn.text, sentence)) remindDrill(true); }
@@ -745,7 +752,7 @@ function liveTalkTurnDone(text) {
   lastAiTurn = { text, userTurn: userTurnNo };
   if (!practiceLoop()) return;
   const d = parseDrill(text);
-  if (d) { setTalkDrill(d.sentence); talkDrill.checkFirst = false; talkDrill.awaitingReply = false; return; }
+  if (d && drillAllowed(d.sentence, userTurnNo)) { setTalkDrill(d.sentence); talkDrill.checkFirst = false; talkDrill.awaitingReply = false; return; }
   if (!talkDrill) return;
   if (talkDrill.checkFirst) { talkDrill.checkFirst = false; if (!mentions(text, talkDrill.sentence)) remindDrill(true); return; }
   if (talkDrill.awaitingReply) { talkDrill.awaitingReply = false; if (!mentions(text, talkDrill.sentence)) remindDrill(false); }
@@ -766,9 +773,9 @@ function sayDrillAgain() {
 }
 async function continueFromDrill() {
   const d = talkDrill; clearTalkDrill();
-  const msg = "OK, let's continue the conversation.";
-  if (rt) { rtSay(msg); return; }
-  if (gl) { geminiSay(msg); return; }
+  drillDoneAt = userTurnNo; if (d) drillDone.add(drillKey(d.sentence));
+  const msg = "OK, let's continue the conversation. Do not go back to that sentence.";
+  if (rt || gl) { liveInterrupt(msg); return; }
   if (d && d.reply) { bubble($('log'), 'ai', d.reply, { play: true }); await speak(d.reply); continueHandsFree(); }
 }
 
@@ -1599,7 +1606,7 @@ function init() {
       emptyState(); setStatus('Practice deleted.');
       return;
     }
-    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); emptyState();
+    history = []; $('log').innerHTML = ''; store.del('ens.chat'); clearTalkDrill(); drillDone.clear(); emptyState();
     setStatus('Chat deleted. Tap the circle and speak, or type below.');
   });
   $('log').addEventListener('click', (e) => {
