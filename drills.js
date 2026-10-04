@@ -16,20 +16,21 @@ const DRILLS = {
 const drillMeta = () => DRILLS[S.drill] || DRILLS.repeat;
 
 /* ---------- live instructions for the two new drills ---------- */
+const REPEAT_LOOP = 'While there is a sentence to repeat, keep the learner on it: after every try, give very short feedback (what was right, which words were missed or wrong), then say the same sentence again and end the turn again with exactly "Repeat after me: <the same sentence>". Even when the try was perfect, praise briefly and end the same way so they can practice it once more. Keep doing this until the learner says the next request; never stop asking them to repeat it on your own.';
 function drillInstructions() {
   const lvl = `The learner's level is CEFR ${S.level}.`;
   const topic = $('topic').value.trim();
   const start = topic ? `The topic is: ${topic}. Start right away.` : 'At the very start, ask once, in one short sentence, what topic or situation they want. If they do not know or give no clear answer, choose an interesting everyday topic yourself and start; never ask for the topic again.';
   const common = `${lvl} ${start} Never move on by yourself: stay on the current item until the learner says "${drillMeta().ask}". Be patient: the learner may stop to think in the middle of a sentence; wait until they have clearly finished before you answer. ${settingsRule('repeat')}`;
   if (S.drill === 'translate') {
-    return `You run a Persian-to-English speaking drill for an adult learner. For each item, say one natural Persian (Farsi) sentence that fits the topic, ${drillLength()} when translated, something people really say in daily life. End that turn with exactly this pattern and nothing after it: "In English, please: <the Persian sentence in Persian script>". Then stop and wait while the learner thinks and answers in English. When they answer, say briefly what was right and what was wrong (focus on the words that matter), then give the natural, everyday American English way to say it and end that turn with exactly: "Repeat after me: <the English sentence>". After each try, give very short feedback. ${common}`;
+    return `You run a Persian-to-English speaking drill for an adult learner. For each item, say one natural Persian (Farsi) sentence that fits the topic, ${drillLength()} when translated, something people really say in daily life. End that turn with exactly this pattern and nothing after it: "In English, please: <the Persian sentence in Persian script>". Then stop and wait while the learner thinks and answers in English. When they answer, say briefly what was right and what was wrong (focus on the words that matter), then give the natural, everyday American English way to say it and end that turn with exactly: "Repeat after me: <the English sentence>". ${REPEAT_LOOP} ${common}`;
   }
   const steps = [
     'say the word or phrase and explain its meaning simply in English, in one or two short sentences',
     'give one natural example sentence with it',
   ];
-  if (S.wordRepeat) steps.push('end that turn with exactly: "Repeat after me: <the example sentence>", then give short feedback on each try');
-  if (S.wordOwn) steps.push('when they have repeated it (or right away if they did not need to), end a turn with exactly: "Your turn: make your own sentence with <the word>." Then correct their sentence briefly and give a natural version');
+  if (S.wordRepeat) steps.push('end that turn with exactly: "Repeat after me: <the example sentence>"' + (S.wordOwn ? ', and keep them on it for a few tries until it sounds good' : '. ' + REPEAT_LOOP));
+  if (S.wordOwn) steps.push('when they have repeated it well (or right away if they did not need to), end a turn with exactly: "Your turn: make your own sentence with <the word>." Then correct their sentence briefly and give a natural version');
   return `You teach key words for an adult learner, one word or short phrase at a time: the important, useful or specialist words of the topic. For each word, start the turn with exactly "Key word: <the word>." then ${steps.join(', then ')}. ${common}`;
 }
 
@@ -45,14 +46,16 @@ function applyDrillTurn(text) {
     if (m && (!target || target.prompt !== m[1].trim())) setDrillItem({ prompt: m[1].trim(), sentence: '', stage: 'listen' });
   }
   if (S.drill === 'translate') {
-    const i = low.lastIndexOf('in english, please');
+    const all = [...t.matchAll(/in english,?\s*please/gi)]; const mm = all[all.length - 1];
+    const i = mm ? mm.index : -1;
     if (i >= 0) {
-      const fa = t.slice(i + 18).replace(/^\s*[:,.\-]?\s*/, '').replace(/^["“]|["”]\s*$/g, '').trim();
+      const fa = t.slice(i + mm[0].length).replace(/^\s*[:,.\-]?\s*/, '').replace(/^["“]|["”]\s*$/g, '').trim();
       if (fa && (!target || target.prompt !== fa)) setDrillItem({ prompt: fa, sentence: '', stage: 'answer' });
     }
   }
   const d = parseDrill(t);
   const ri = low.lastIndexOf('repeat after me'); const yi = low.lastIndexOf('your turn');
+  if (d && ri > yi && !target) setDrillItem({ prompt: '', sentence: '', stage: 'repeat' });
   if (d && ri > yi && target) {
     if (target.sentence !== d.sentence) attempts = 0;
     target.sentence = d.sentence; target.stage = 'repeat';
@@ -76,7 +79,22 @@ function renderDrillCard() {
   $('target').setAttribute('dir', 'auto');
   $('target2').textContent = target.sentence || '';
   $('target2').hidden = !target.sentence;
-  $('hearAgain').disabled = false; $('hearSlow').disabled = false;
+  syncDrillButtons();
+}
+/* Hear again / Slowly: always usable in a live drill (they only ask the partner); turn by turn they need something to say. */
+function syncDrillButtons() {
+  const live = (typeof gl !== 'undefined' && gl && gl.kind === 'repeat') || (typeof rt !== 'undefined' && rt && rt.kind === 'repeat');
+  const on = live || !!(target && (target.sentence || target.prompt));
+  $('hearAgain').disabled = !on; $('hearSlow').disabled = !on;
+}
+/* What Hear again / Slowly ask the partner for in a live drill, matching what is on the card. */
+function liveAgainRequest(slow) {
+  const how = slow ? ', slowly and clearly' : '';
+  const s = target && target.sentence;
+  if (s && (S.drill === 'repeat' || target.stage === 'repeat')) return `Please say "${s}" again${how}, then let me repeat it. End with "Repeat after me: ${s}".`;
+  if (S.drill === 'translate') return `Please say the Persian sentence again${how}${target && target.prompt ? ` ("${target.prompt}")` : ''}, then wait for my English.`;
+  if (S.drill === 'words') return `Please say the key word${target && target.prompt ? ` "${target.prompt}"` : ''}, its meaning and the example again${how}.`;
+  return `Please say the sentence again${how}, then let me repeat it.`;
 }
 /* What you said in a live drill: compared word by word only when there is a sentence to repeat. */
 function drillUserSaid(text) {

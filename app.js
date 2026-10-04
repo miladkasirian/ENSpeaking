@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.23.0 (2026-10-04)';
+const VERSION = '2.23.1 (2026-10-04)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -182,6 +182,7 @@ function paceRequest() {
 const withPace = (text) => [text, toneOf().ask, paceRequest(), ACCENT_ASK[S.accent] || ''].filter(Boolean).join(' ');
 function setPhase(p) {
   phase = p;
+  syncDrillButtons();
   const cut = document.getElementById('cutIn'); if (cut) cut.hidden = p !== 'call';
   keepScreenOn(p === 'call' || p === 'connecting' || ((p === 'speak' || p === 'think') && !!(rt || gl)));
   const mic = $('mic');
@@ -1898,21 +1899,20 @@ function init() {
   });
   // In a Gemini Live repeat drill these buttons ask the coach instead of the turn-by-turn engine.
   const liveRepeat = () => (gl && gl.kind === 'repeat') || (rt && rt.kind === 'repeat');
-  const geminiSayOrRt = (text) => (gl ? geminiSay(text) : rtSay(text));
   $('nextSentence').addEventListener('click', () => {
     handsFreeCancelled = false;
-    if (liveRepeat()) { geminiSayOrRt(drillMeta().ask); return; }
+    if (liveRepeat()) { liveInterrupt(drillMeta().ask); return; }
     if (S.engine === 'glive') { unlockAudio(); startGeminiCall('repeat'); return; }
     if (S.engine === 'realtime') { unlockAudio(); startCall('repeat'); return; }
     if (S.drill === 'repeat') nextSentence(); else nextDrillItem();
   });
   const sayTarget = () => (target && (target.sentence || target.prompt)) || '';
   $('hearAgain').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSayOrRt(S.drill === 'repeat' ? 'Please say the same sentence again.' : 'Please say that again.'); return; }
+    if (liveRepeat()) { liveInterrupt(liveAgainRequest(false)); return; }
     if (sayTarget()) { unlockAudio(); stopSpeaking(); speak(sayTarget()); }
   });
   $('hearSlow').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSayOrRt(S.drill === 'repeat' ? 'Please say the same sentence again, slowly and clearly.' : 'Please say that again, slowly and clearly.'); return; }
+    if (liveRepeat()) { liveInterrupt(liveAgainRequest(true)); return; }
     if (sayTarget()) { unlockAudio(); stopSpeaking(); speak(sayTarget(), Math.max(0.5, Number(S.rate) * 0.7)); }
   });
   $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('target2').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
