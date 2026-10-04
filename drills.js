@@ -31,7 +31,7 @@ function drillInstructions() {
   ];
   if (S.wordRepeat) steps.push('end that turn with exactly: "Repeat after me: <the example sentence>"' + (S.wordOwn ? ', and keep them on it for a few tries until it sounds good' : '. ' + REPEAT_LOOP));
   if (S.wordOwn) steps.push('when they have repeated it well (or right away if they did not need to), end a turn with exactly: "Your turn: make your own sentence with <the word>." Then correct their sentence briefly and give a natural version');
-  return `You teach key words for an adult learner, one word or short phrase at a time: the important, useful or specialist words of the topic. For each word, start the turn with exactly "Key word: <the word>." then ${steps.join(', then ')}. ${common}`;
+  return `You teach key words for an adult learner, one word or short phrase at a time: the important, useful or specialist words of the topic. For each word, start the turn with exactly "Key word: <the word>." then ${steps.join(', then ')}. ${common} THE FIRST WORD: as soon as the learner tells you the topic (or you choose one because they have none), answer right away in that same reply by teaching the first key word of that topic. Never stay silent after the learner tells you the topic. "${drillMeta().ask}" is only for moving on to the following words; never wait for it before the first word.`;
 }
 
 /* ---------- reading the partner's turn in a live drill ---------- */
@@ -99,8 +99,26 @@ function liveAgainRequest(slow) {
 /* What you said in a live drill: compared word by word only when there is a sentence to repeat. */
 function drillUserSaid(text) {
   if (!text) return;
+  if (S.drill === 'words' && !target) nudgeFirstWord(text);
   if (target && target.sentence && target.stage === 'repeat') { renderAttempt(text); return; }
   const log = $('repeatLog'); clearEmpty(log); bubble(log, 'me', text);
+}
+
+/* Safety net for the Words drill in a live call: if the partner stays silent after you name the topic,
+   ask it once for the first word. */
+let firstWordTimer = null;
+function nudgeFirstWord(said) {
+  clearTimeout(firstWordTimer);
+  const aiCount = () => $('repeatLog').querySelectorAll('.msg.ai').length;
+  const before = aiCount();
+  firstWordTimer = setTimeout(() => {
+    const live = (gl && gl.kind === 'repeat') || (rt && rt.kind === 'repeat');
+    if (!live || S.drill !== 'words' || target || aiCount() > before) return;
+    if (gl && (gl.inReply || gl.ai)) return; // it is already answering
+    const ask = `My topic is: ${said}. Please teach me the first key word of this topic now.`;
+    if (gl) geminiSay(ask); else rtSay(ask);
+    setStatus('Asking the partner for the first word...');
+  }, 6000);
 }
 
 /* ---------- turn by turn ---------- */

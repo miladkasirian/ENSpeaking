@@ -240,6 +240,8 @@ async function startGeminiCall(kind = 'talk', opts = {}) {
   const st = { kind, carry: opts.carry && kind === 'talk' ? recentConversation() : '', note: opts.note || '', outEl, outDest, ws: null, stream: null, ctx: null, q: [], sentSec: 0, outSec: 0, billedIn: 0, billedOut: 0, playT: 0, sources: [],
     t0: 0, timer: null, handle: null, basic: false, setupDone: false, closing: false, reconnects: 0, me: null, meText: '', ai: null, aiText: '', stops: [] };
   gl = st;
+  // a new Words call starts from a clean card (the partner asks for the topic again)
+  if (kind === 'repeat' && !opts.carry && S.drill === 'words' && target) { target = null; attempts = 0; renderDrillCard(); syncTargetHint(); }
   try {
     st.stream = await getMic();
     const ctx = getCtx(); if (!ctx || !ctx.audioWorklet) throw new Error('This browser cannot stream audio for Gemini Live.');
@@ -618,6 +620,7 @@ function onGeminiMsg(st, msg) {
   if (st.kind === 'repeat' && sc.inputTranscription && sc.inputTranscription.text) {
     st.meText += sc.inputTranscription.text; st.meStarted = true;
     $('status').textContent = 'Hearing: ' + st.meText.trim();
+    if (S.drill === 'words' && !target) nudgeFirstWord(st.meText.trim());
   } else if (sc.inputTranscription && sc.inputTranscription.text) {
     if (!st.me) {
       clearEmpty(log); st.me = bubble(log, 'me', '', { pending: true }); st.meText = '';
@@ -638,6 +641,10 @@ function onGeminiMsg(st, msg) {
     scrollDown(log);
   }
   if (sc.turnComplete && st.kind === 'repeat') {
+    // the reply is over: a cut-off reply must not keep muting the next ones
+    st.inReply = false; st.dropAudio = false;
+    if (!st.underran && st.jitter > 0.15) st.jitter = Math.max(0.15, st.jitter - 0.05);
+    st.underran = false;
     const said = st.aiText.trim();
     if (S.drill !== 'repeat') {
       const d = applyDrillTurn(said);
