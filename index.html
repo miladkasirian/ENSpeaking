@@ -20,7 +20,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,650;12..96,750&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=2.22.6">
+<link rel="stylesheet" href="style.css?v=2.23.0">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -40,7 +40,7 @@
   <div class="modebar">
     <div class="segmented" role="tablist" aria-label="Practice mode">
       <button role="tab" class="seg active" data-mode="talk" aria-selected="true">Conversation</button>
-      <button role="tab" class="seg" data-mode="repeat" aria-selected="false">Repeat after me</button>
+      <button role="tab" class="seg" data-mode="repeat" aria-selected="false">Drills</button>
       <span class="seg-glider" aria-hidden="true"></span>
     </div>
     <div class="chip-row">
@@ -52,6 +52,11 @@
       <div class="talk-modes" id="talkModes" role="radiogroup" aria-label="Conversation style">
         <button type="button" class="tm" data-tm="practice" role="radio" aria-checked="true" title="Practice: your mistakes are corrected"><span class="tm-dot" aria-hidden="true"></span>Practice</button>
         <button type="button" class="tm" data-tm="open" role="radio" aria-checked="false" title="Open talk: no corrections, talk or ask anything"><span class="tm-dot" aria-hidden="true"></span>Open talk</button>
+      </div>
+      <div class="talk-modes drill-modes" id="drillModes" role="radiogroup" aria-label="Drill" hidden>
+        <button type="button" class="tm" data-dm="repeat" role="radio" aria-checked="true" title="Repeat after me"><span class="tm-dot" aria-hidden="true"></span>Repeat</button>
+        <button type="button" class="tm" data-dm="translate" role="radio" aria-checked="false" title="Persian to English: say the Persian sentence in English"><span class="tm-dot" aria-hidden="true"></span>FA → EN</button>
+        <button type="button" class="tm" data-dm="words" role="radio" aria-checked="false" title="Key words of the topic"><span class="tm-dot" aria-hidden="true"></span>Words</button>
       </div>
     </div>
   </div>
@@ -82,10 +87,11 @@
     <div id="repeatView" class="view" hidden>
       <div class="target-card">
         <div class="target-head">
-          <span>Say this sentence</span>
+          <span id="drillHead">Say this sentence</span>
           <span id="focus" class="focus"></span>
         </div>
-        <p id="target" class="target">Tap Next sentence to begin.</p>
+        <p id="target" class="target" dir="auto">Tap Next sentence to begin.</p>
+        <p id="target2" class="target target2" hidden></p>
         <div class="target-actions">
           <button class="pill-btn" id="hearAgain" disabled>Hear again</button>
           <button class="pill-btn" id="hearSlow" disabled>Slowly</button>
@@ -99,6 +105,7 @@
 
   <form class="composer" id="composer" autocomplete="off">
     <input id="typed" type="text" placeholder="Type a message in English" enterkeyhint="send" aria-label="Type a message">
+    <button class="pill-btn" id="keyWordBtn" type="button" title="Teach me one key word of this topic, then go back to the conversation">Key word</button>
     <button class="send" id="sendBtn" aria-label="Send">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
     </button>
@@ -266,6 +273,8 @@
       <label class="check"><input id="sayCorrections" type="checkbox"> Say corrections out loud before replying (also in live calls)</label>
       <label class="check"><input id="keepMic" type="checkbox"> Turn by turn: keep the microphone ready for 20 seconds between recordings (asks for permission less often). Live calls always turn the mic off when they end.</label>
       <label class="check"><input id="rtWritten" type="checkbox"> In live calls, also show written corrections (uses the chat model above)</label>
+      <label class="check"><input id="wordRepeat" type="checkbox"> Key words: let me repeat the example sentence after the partner</label>
+      <label class="check"><input id="wordOwn" type="checkbox"> Key words: ask me to make my own sentence with the word and correct it</label>
     </section>
 
     <section class="group" id="promptGroup">
@@ -309,8 +318,9 @@
   </div>
 </dialog>
 
-<script src="doc.js?v=2.22.6"></script>
-<script src="gemini.js?v=2.22.6"></script>
-<script src="app.js?v=2.22.6"></script>
+<script src="doc.js?v=2.23.0"></script>
+<script src="drills.js?v=2.23.0"></script>
+<script src="gemini.js?v=2.23.0"></script>
+<script src="app.js?v=2.23.0"></script>
 </body>
 </html>

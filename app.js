@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.22.6 (2026-10-02)';
+const VERSION = '2.23.0 (2026-10-04)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------
@@ -40,6 +40,7 @@ const DEFAULTS = {
   engine: 'turn',
   level: 'B2', strict: 2, explainLang: 'English', replyLen: 3,
   sayCorrections: true, autoStop: true, handsFree: false, speakTyped: true, keepMic: true, saveData: false, aiNoise: false, showLevels: false, cutSens: 10, sttFallback: false,
+  drill: 'repeat', wordRepeat: true, wordOwn: true, // Drills tab: 'repeat', 'translate' (Persian to English) or 'words' (key words)
   talkMode: 'open', // Conversation tab: 'practice' (corrections) or 'open' (free talk, no corrections)
   chatModel: 'gpt-4o-mini', sttModel: 'gpt-4o-mini-transcribe',
   voiceEngine: 'device', deviceVoice: '', openaiVoice: 'coral', accent: 'boston', tone: 'strangers', langs: 'en-fa', speed: 2, rate: 0.85, volume: 100,
@@ -588,9 +589,10 @@ function tutorRules() {
     : 'Do not report mistakes: always return an empty "mistakes" list, an empty "corrected" and an empty "spoken_fix".';
 }
 /* The settings are added by the code to every instruction, so they work even if the editable text was changed. */
+const TOPIC_RULE = 'TOPIC: ask the learner for a topic at most once. If they say they do not know, have no clear answer or leave it to you, choose an interesting topic yourself and lead with energy and creativity: tell a short piece of news or a story, explain something interesting, ask for their opinion, share your own. Never ask for the topic again.';
 function settingsRule(kind) {
   const lvl = `The learner's level is CEFR ${S.level}: use words and grammar that fit this level.`;
-  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${soundNatural()} ${accentRule()} ${toneOf().rule}`;
+  if (kind === 'repeat') return `SETTINGS (always follow): ${lvl} Every sentence must be ${drillLength()}. ${speakingPace()} ${soundNatural()} ${accentRule()} ${toneOf().rule} ${TOPIC_RULE}`;
   if (kind === 'checker') return `SETTINGS (always follow): The learner's level is CEFR ${S.level}. ${tutorRules()}`;
   const len = `Reply length: ${REPLY_LEN[S.replyLen] || REPLY_LEN[1]}.`;
   let corr;
@@ -598,7 +600,7 @@ function settingsRule(kind) {
   else if (!corrOn()) corr = 'Do not correct the learner at all; never point out mistakes.';
   else if (kind === 'live' && !S.sayCorrections) corr = 'Do not correct the learner out loud.';
   else corr = `Correct ${strictRule()}.` + (S.strict < 5 ? ' Let every other mistake go without comment.' : '');
-  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} ${toneOf().rule} LANGUAGES: ${languageRule()}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
+  return `SETTINGS (always follow, they override anything above): ${lvl} ${len} Corrections: ${corr} ${toneOf().rule} LANGUAGES: ${languageRule()} ${TOPIC_RULE}` + (kind === 'live' ? ' ' + speakingPace() + ' ' + soundNatural() + ' ' + accentRule() + ' If the learner asks you to speak slower or faster, do that for the rest of the call.' : '');
 }
 const REPLY_LEN = {
   1: 'SHORT: one or two short sentences, at most 25 words in total',
@@ -835,11 +837,11 @@ function bubble(log, who, text, opts = {}) {
   log.appendChild(b); scrollDown(log);
   return b;
 }
-async function handleTalk(text, typed) {
+async function handleTalk(text, typed, opts = {}) {
   const log = $('log'); clearEmpty(log);
-  const mine = bubble(log, 'me', text, { typed });
-  docHeard(text);
-  if (talkDrill && practiceLoop()) {
+  const mine = bubble(log, 'me', opts.label || text, { typed });
+  if (!opts.label) docHeard(text);
+  if (talkDrill && practiceLoop() && !opts.label) {
     mine.classList.add('practice-try');
     const pct = attemptCard(log, talkDrill.sentence, text, ++talkDrill.tries);
     const q = talkDrill.question ? ' ' + talkDrill.question : '';
@@ -854,7 +856,7 @@ async function handleTalk(text, typed) {
   const out = await chatJSON([{ role: 'system', content: talkSystemPrompt(typed) }, ...history]);
   const reply = String(out.reply || '').trim() || 'Sorry, could you say that again?';
   history.push({ role: 'assistant', content: reply });
-  const mistakes = isOpenTalk() ? [] : renderFix(log, out);
+  const mistakes = isOpenTalk() || opts.label ? [] : renderFix(log, out);
   if (mistakes.length && out.corrected && practiceLoop()) {
     // hold the reply; first practice the corrected sentence until you tap OK, continue
     setTalkDrill(String(out.corrected).trim(), reply, prevAi ? lastQuestion(prevAi.content) : '', mine);
@@ -1073,6 +1075,7 @@ function attemptCard(log, sentence, text, n) {
   return pct;
 }
 async function handleRepeat(text) {
+  if (S.drill !== 'repeat') { await handleDrillTurn(text); return; }
   if (!target) { setPhase('idle'); setStatus('Tap Next sentence first.'); return; }
   const pct = renderAttempt(text);
   // Stays on this sentence until you tap Next sentence.
@@ -1205,12 +1208,19 @@ function onRtRepeatEvent(ev) {
   if (t === 'input_audio_buffer.speech_started') { setStatus('Hearing you...'); return true; }
   if (t === 'conversation.item.input_audio_transcription.completed') {
     const text = String(ev.transcript || '').trim();
-    if (text && target) renderAttempt(text);
-    setStatus('Live drill. Listen, then repeat. Tap the circle to stop.');
+    if (S.drill !== 'repeat') drillUserSaid(text);
+    else if (text && target) renderAttempt(text);
+    if (S.drill === 'repeat') setStatus('Live drill. Listen, then repeat. Tap the circle to stop.');
     return false; // let the cost code below run
   }
   if (t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done') {
-    const b = rtBubble(ev.item_id, 'ai'); const d = parseDrill(ev.transcript || '');
+    const b = rtBubble(ev.item_id, 'ai');
+    if (S.drill !== 'repeat') {
+      const d = applyDrillTurn(ev.transcript || '');
+      if (d && b) { if (d.before) b.querySelector('.txt').textContent = d.before; else b.remove(); }
+      return true;
+    }
+    const d = parseDrill(ev.transcript || '');
     if (d) {
       if (!target || target.sentence !== d.sentence) attempts = 0;
       target = { sentence: d.sentence, focus: '' };
@@ -1453,7 +1463,8 @@ function syncTalkMode() {
 }
 function syncTargetHint() {
   if (target) return;
-  $('target').textContent = usesCall() ? 'Tap the circle to start. The coach will ask what you want to practice.' : 'Tap Next sentence to begin.';
+  $('target').textContent = usesCall() ? 'Tap the circle to start. The coach will ask what you want to practice.' : drillMeta().start;
+  $('target2').hidden = true;
 }
 function syncEngineUI() {
   syncTargetHint();
@@ -1596,9 +1607,9 @@ function bindSettings() {
       if (['level', 'explainLang', 'accent', 'tone', 'langs'].includes(id)) liveSettingsChanged();
     });
   });
-  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels', 'saveData', 'sttFallback'].forEach((id) => {
+  ['sayCorrections', 'autoStop', 'speakTyped', 'rtWritten', 'keepMic', 'showLevels', 'saveData', 'sttFallback', 'wordRepeat', 'wordOwn'].forEach((id) => {
     const n = $(id); n.checked = !!S[id];
-    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections') liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
+    n.addEventListener('change', () => { S[id] = n.checked; saveSettings(); syncHandsFree(); if (id === 'sayCorrections' || ((id === 'wordRepeat' || id === 'wordOwn') && S.drill === 'words' && mode === 'repeat')) liveSettingsChanged(); if (id === 'keepMic' && !n.checked && !rec && !rt && !gl) releaseMic(true); });
   });
   document.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', () => {
     if (r.checked) { endAnyCall(); S.engine = r.value; S[S.provider === 'gemini' ? 'gEngine' : 'oaEngine'] = r.value; saveSettings(); syncEngineUI(); idleStatus(); }
@@ -1648,11 +1659,11 @@ function switchMode(m) {
   document.querySelectorAll('.seg').forEach((b) => { const on = b.dataset.mode === m; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
   document.querySelector('.segmented').dataset.mode = m;
   $('talkView').hidden = m !== 'talk'; $('repeatView').hidden = m !== 'repeat'; syncTalkMode();
-  $('docBtn').hidden = m !== 'talk'; renderDocBar();
+  $('docBtn').hidden = m !== 'talk'; $('keyWordBtn').hidden = m !== 'talk'; syncDrillModes(); renderDocBar();
   syncTargetHint();
   $('composer').hidden = m !== 'talk';
-  setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and repeat the sentence.' : 'Tap Next sentence to begin.'));
-  if (m === 'repeat' && usesCall()) setStatus('Tap the circle to start. The coach says a sentence, you repeat it, it tells you how it went.');
+  setStatus(m === 'talk' ? 'Tap the circle and speak, or type below.' : (target ? 'Tap the circle and answer.' : drillMeta().start));
+  if (m === 'repeat' && usesCall()) setStatus('Tap the circle to start the drill.');
 }
 async function onTyped(ev) {
   ev.preventDefault();
@@ -1858,6 +1869,7 @@ function init() {
   }));
   syncTalkMode();
   setupDoc();
+  setupDrills();
   $('topic').addEventListener('change', () => liveSettingsChanged());
   $('composer').addEventListener('submit', onTyped);
   let delArmed = null;
@@ -1872,7 +1884,7 @@ function init() {
     endAnyCall(); stopSpeaking(); setPhase('idle');
     if (mode === 'repeat') {
       $('repeatLog').innerHTML = ''; target = null; attempts = 0;
-      syncTargetHint(); $('focus').textContent = '';
+      syncTargetHint(); renderDrillCard(); $('focus').textContent = '';
       $('hearAgain').disabled = true; $('hearSlow').disabled = true;
       emptyState(); setStatus('Practice deleted.');
       return;
@@ -1889,20 +1901,21 @@ function init() {
   const geminiSayOrRt = (text) => (gl ? geminiSay(text) : rtSay(text));
   $('nextSentence').addEventListener('click', () => {
     handsFreeCancelled = false;
-    if (liveRepeat()) { geminiSayOrRt('Next sentence, please.'); return; }
+    if (liveRepeat()) { geminiSayOrRt(drillMeta().ask); return; }
     if (S.engine === 'glive') { unlockAudio(); startGeminiCall('repeat'); return; }
     if (S.engine === 'realtime') { unlockAudio(); startCall('repeat'); return; }
-    nextSentence();
+    if (S.drill === 'repeat') nextSentence(); else nextDrillItem();
   });
+  const sayTarget = () => (target && (target.sentence || target.prompt)) || '';
   $('hearAgain').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSayOrRt('Please say the same sentence again.'); return; }
-    if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence); }
+    if (liveRepeat()) { geminiSayOrRt(S.drill === 'repeat' ? 'Please say the same sentence again.' : 'Please say that again.'); return; }
+    if (sayTarget()) { unlockAudio(); stopSpeaking(); speak(sayTarget()); }
   });
   $('hearSlow').addEventListener('click', () => {
-    if (liveRepeat()) { geminiSayOrRt('Please say the same sentence again, slowly and clearly.'); return; }
-    if (target) { unlockAudio(); stopSpeaking(); speak(target.sentence, Math.max(0.5, Number(S.rate) * 0.7)); }
+    if (liveRepeat()) { geminiSayOrRt(S.drill === 'repeat' ? 'Please say the same sentence again, slowly and clearly.' : 'Please say that again, slowly and clearly.'); return; }
+    if (sayTarget()) { unlockAudio(); stopSpeaking(); speak(sayTarget(), Math.max(0.5, Number(S.rate) * 0.7)); }
   });
-  $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
+  $('toggleText').addEventListener('click', () => { hideText = !hideText; $('target').classList.toggle('blur', hideText); $('target2').classList.toggle('blur', hideText); $('toggleText').textContent = hideText ? 'Show text' : 'Hide text'; });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (mediaKeeper) mediaKeeper.pause(); setTimeout(() => { if (document.hidden) releaseMic(true); }, 0); handsFreeCancelled = true; if (phase === 'rec') stopRec(); endAnyCall('Call ended because the app went to the background.'); stopSpeaking(); }
   });

@@ -200,6 +200,7 @@ async function echoLoopback(st) {
   } catch { /* plays directly */ }
 }
 function repeatInstructions() {
+  if (S.drill === 'translate' || S.drill === 'words') return drillInstructions();
   return [
     prompt('liveRepeat', { topic: topicLine('drill'), opening: openingLine('drill') }),
     settingsRule('repeat'),
@@ -498,7 +499,8 @@ function cutPlayback(st) {
 function finishMyTurn(st) {
   if (st.kind === 'repeat') {
     const text = st.meText.trim(); st.meText = '';
-    if (st.meStarted && text && target) renderAttempt(text);
+    if (st.meStarted && text && S.drill !== 'repeat') drillUserSaid(text);
+    else if (st.meStarted && text && target) renderAttempt(text);
     st.meStarted = false;
     return;
   }
@@ -636,7 +638,12 @@ function onGeminiMsg(st, msg) {
     scrollDown(log);
   }
   if (sc.turnComplete && st.kind === 'repeat') {
-    const said = st.aiText.trim(); const d = parseDrill(said);
+    const said = st.aiText.trim();
+    if (S.drill !== 'repeat') {
+      const d = applyDrillTurn(said);
+      if (d && st.ai) { if (d.before) st.ai.querySelector('.txt').textContent = d.before; else { st.ai.remove(); st.ai = null; } }
+    }
+    const d = S.drill === 'repeat' ? parseDrill(said) : null;
     if (d) {
       if (!target || target.sentence !== d.sentence) attempts = 0;
       target = { sentence: d.sentence, focus: '' };

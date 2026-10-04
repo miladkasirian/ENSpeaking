@@ -1,7 +1,7 @@
 /* EN Speaking service worker: network first, so a new version on GitHub is used as soon as it is online;
    the cached copy is used only when there is no connection. API calls are never cached. */
-const CACHE = 'ens-shell-2.22.6';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'gemini.js', 'prompts.json', 'manifest.webmanifest', 'favicon.ico', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'ens-shell-2.23.0';
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'gemini.js', 'doc.js', 'drills.js', 'prompts.json', 'manifest.webmanifest', 'favicon.ico', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
