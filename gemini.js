@@ -415,7 +415,8 @@ function echoGate(st, rms, chunk) {
   // 1) Measure, during the first 0.6 s of each reply, how much of the partner's voice reaches the mic.
   //    If the phone's echo cancellation removes it (almost nothing arrives), the mic stays fully open:
   //    you can talk as softly as you like, even over the partner.
-  if (t < 0.6) { st.echoPeak = Math.max(st.echoPeak, rms); return false; } // measuring: the start of a reply never counts as you cutting in
+  // (the window is 1 s: the reply is scheduled a little before it is really heard from the speaker)
+  if (t < 1.0) { st.echoPeak = Math.max(st.echoPeak, rms); return false; } // measuring: the start of a reply never counts as you cutting in
   if (!st.echoChecked) {
     // Only when practically nothing of the partner reaches the mic (headphones / AirPods) is the mic left open.
     // With the phone speaker some echo always arrives, often louder than a soft voice, so the mic is held back.
@@ -432,6 +433,9 @@ function echoGate(st, rms, chunk) {
   const lv = cutLevel();
   if (!lv) return false; // setting 1: the mic is off while the partner speaks; talk when it has finished
   if (st.echoChecked && st.aecOk) return true;
+  // The first reply of a call only teaches the app how loud the partner's own echo is; your voice does not
+  // stop it (the hand button does). Otherwise its own voice counted as yours and it kept cutting itself off.
+  if (!st.repliesDone) { st.echoAvg = Math.max((st.echoAvg ?? 0) * 0.97, rms); return false; }
   // 2) While the partner speaks the phone turns your mic down (your voice reads about 0.03 instead of 0.05).
   //    So your voice from BARGE_LEVEL up, for 0.12 s and clearly above the partner's own echo, does what the
   //    hand button does: the partner stops at once and your words (with the 0.4 s before) go to Gemini.
@@ -643,6 +647,7 @@ function onGeminiMsg(st, msg) {
     st.ai.querySelector('.txt').textContent = st.aiText.trim();
     scrollDown(log);
   }
+  if (sc.turnComplete && (st.aiText.trim() || st.playT)) st.repliesDone = (st.repliesDone || 0) + 1;
   if (sc.turnComplete && st.kind === 'repeat') {
     // the reply is over: a cut-off reply must not keep muting the next ones
     st.inReply = false; st.dropAudio = false;

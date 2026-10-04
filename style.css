@@ -500,4 +500,5 @@ dialog#guide {
 .msg.me.refining .txt { opacity: .7; }
 .msg.me.refining .who::after { content: " · checking..."; color: var(--muted); }
 /* the small Key word button next to the message box */
-#keyWordBtn { flex: none; padding: 0 10px; font-size: 13px; }
+#keyWordBtn, #backTalkBtn { flex: none; padding: 0 10px; font-size: 13px; }
+#backTalkBtn[hidden] { display: none; }
