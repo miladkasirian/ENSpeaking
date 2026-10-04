@@ -514,17 +514,20 @@ function finishMyTurn(st) {
     return;
   }
   if (!st.me) return;
+  const foreign = hasForeign(st.meText); // written in another language: wait for the careful transcript below
   const text = cleanScript(st.meText); const b = st.me;
   st.me = null; st.meText = '';
   b.classList.remove('pending');
-  if (isNoise(text)) { b.remove(); return; } // only background noise was heard
+  const UNCLEAR = '(not clear: I could not write this down)';
+  if (foreign) b.querySelector('.txt').textContent = '...';
+  else if (isNoise(text)) { b.remove(); return; } // only background noise was heard
   // Only words heard while the partner's voice was coming out of the speaker can be its echo. What you say
   // when it is quiet is always yours, even if the partner repeats your words in its reply.
   if (st.meDuringReply && isEcho(text, [st.aiText, lastAiTurn.text, st.prevAi])) { b.remove(); return; }
-  const entry = { role: 'user', content: text };
+  const entry = { role: 'user', content: foreign ? UNCLEAR : text };
   history.push(entry); history = history.slice(-16);
   const audio = st.turnAudio || []; st.turnAudio = [];
-  const check = !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn();
+  const check = !foreign && !liveTalkUserSaid(text, b) && (S.rtWritten || practiceLoop()) && corrOn();
   const turnNo = userTurnNo;
   persistChat();
   // Gemini Live's own quick transcript is shown at once. Then the same turn's audio is written down again by a
@@ -535,14 +538,25 @@ function finishMyTurn(st) {
       b.classList.remove('refining');
       better = cleanScript(better || '');
       if (better && !isNoise(better)) { b.querySelector('.txt').textContent = better; entry.content = better; persistChat(); }
+      else if (foreign) b.querySelector('.txt').textContent = UNCLEAR;
       if (check) writtenCorrections(entry.content, b, turnNo);
-    }).catch(() => { b.classList.remove('refining'); if (check) writtenCorrections(text, b, turnNo); });
-  } else if (check) writtenCorrections(text, b, turnNo);
+    }).catch(() => { b.classList.remove('refining'); if (foreign) b.querySelector('.txt').textContent = UNCLEAR; if (check) writtenCorrections(text, b, turnNo); });
+  } else {
+    if (foreign) b.querySelector('.txt').textContent = UNCLEAR;
+    if (check) writtenCorrections(text, b, turnNo);
+  }
 }
 /* The learner's turn, written down by gemini-3.8-flash from the exact audio that was sent to Gemini Live. */
 /* Only English or Persian may appear in what you said. Words in any other script are dropped; Persian stays
    only when there are at least two Persian words (one stray Persian word is a mishearing). */
+/* A letter English (or Persian) never uses, like Vietnamese ă ơ ư or the tone marks, Polish ł, Turkish ş:
+   the transcriber slipped into another language, so none of its words can be trusted. */
+function hasForeign(text) {
+  // also ã õ ô: Vietnamese and Portuguese use them, English practically never
+  return [...String(text || '')].some((c) => /\p{L}/u.test(c) && (/[ãõôÃÕÔ]/.test(c) || !/[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\p{Script=Arabic}]/u.test(c)));
+}
 function cleanScript(text) {
+  if (hasForeign(text)) return '';
   const ws = String(text || '').trim().split(/\s+/).filter(Boolean);
   const latin = (w) => /^[\p{Script=Latin}\p{N}\p{P}\p{S}]+$/u.test(w);
   const persian = (w) => /^[\p{Script=Arabic}\p{N}\p{P}\u200c]+$/u.test(w) && /\p{Script=Arabic}/u.test(w);
@@ -634,7 +648,7 @@ function onGeminiMsg(st, msg) {
       st.meDuringReply = !!(st.playT && st.ctx.currentTime < st.playT + 1.5);
     }
     st.meText += sc.inputTranscription.text;
-    st.me.querySelector('.txt').textContent = cleanScript(st.meText);
+    st.me.querySelector('.txt').textContent = cleanScript(st.meText) || '...';
     scrollDown(log);
   }
   const parts = (sc.modelTurn && sc.modelTurn.parts) || [];
