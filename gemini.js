@@ -415,11 +415,14 @@ function echoGate(st, rms, chunk) {
   // 1) Measure, during the first 0.6 s of each reply, how much of the partner's voice reaches the mic.
   //    If the phone's echo cancellation removes it (almost nothing arrives), the mic stays fully open:
   //    you can talk as softly as you like, even over the partner.
-  if (t < 0.6) st.echoPeak = Math.max(st.echoPeak, rms);
-  else if (!st.echoChecked) {
+  if (t < 0.6) { st.echoPeak = Math.max(st.echoPeak, rms); return false; } // measuring: the start of a reply never counts as you cutting in
+  if (!st.echoChecked) {
     // Only when practically nothing of the partner reaches the mic (headphones / AirPods) is the mic left open.
     // With the phone speaker some echo always arrives, often louder than a soft voice, so the mic is held back.
     st.echoChecked = true; st.aecOk = st.echoPeak < 0.003;
+    // the first reply of a call: no echo level learned yet, so start from the loudest echo just measured
+    // (without this, the partner's own voice counted as you and it kept cutting itself off at the start)
+    if (st.echoAvg == null || st.echoAvg < st.echoPeak * 0.5) st.echoAvg = st.echoPeak;
     if (!st.aecReported) {
       st.aecReported = true;
       setStatus(st.aecOk ? 'Headphones: you can talk softly, even while the partner speaks.'

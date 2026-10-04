@@ -5,7 +5,7 @@
    The API key lives only in this browser's localStorage. */
 'use strict';
 
-const VERSION = '2.23.2 (2026-10-04)';
+const VERSION = '2.23.3 (2026-10-04)';
 const API = 'https://api.openai.com/v1';
 
 /* ---------- models and published prices (USD) ----------

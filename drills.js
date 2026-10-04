@@ -83,6 +83,7 @@ function renderDrillCard() {
 }
 /* Hear again / Slowly: always usable in a live drill (they only ask the partner); turn by turn they need something to say. */
 function syncDrillButtons() {
+  if (keyWordOn && !(typeof gl !== 'undefined' && gl) && !(typeof rt !== 'undefined' && rt)) setKeyWordOn(false); // the call ended
   const live = (typeof gl !== 'undefined' && gl && gl.kind === 'repeat') || (typeof rt !== 'undefined' && rt && rt.kind === 'repeat');
   const on = live || !!(target && (target.sentence || target.prompt));
   $('hearAgain').disabled = !on; $('hearSlow').disabled = !on;
@@ -209,12 +210,24 @@ function keyWordRequest() {
     (S.wordOwn ? ' After I repeat it, ask me to make my own sentence with the word and correct it.' : '') +
     ' Then go back to our conversation.';
 }
+/* In a live call the button becomes "Back to talk" while a key word is being practiced. */
+let keyWordOn = false;
+function setKeyWordOn(on) {
+  keyWordOn = on;
+  $('keyWordBtn').textContent = on ? 'Back to talk' : 'Key word';
+  $('keyWordBtn').classList.toggle('strong', on);
+}
+const BACK_TO_TALK = "OK, thanks, that's enough practice with this word. Let's go back to our conversation now: continue exactly where we were before the key word. Do not ask me to repeat anything.";
 function setupDrills() {
   document.querySelectorAll('#drillModes .tm').forEach((b) => b.addEventListener('click', () => setDrill(b.dataset.dm)));
   $('keyWordBtn').addEventListener('click', () => {
     unlockAudio();
-    if (gl) { geminiSay(keyWordRequest()); setStatus('Asking for a key word...'); return; }
-    if (rt && rt.dc && rt.dc.readyState === 'open') { rtSay(keyWordRequest()); setStatus('Asking for a key word...'); return; }
+    const live = gl || (rt && rt.dc && rt.dc.readyState === 'open');
+    if (live && keyWordOn) {
+      if (typeof talkDrill !== 'undefined' && talkDrill) clearTalkDrill(true); // close an open "say it again" bar too
+      liveInterrupt(BACK_TO_TALK); setKeyWordOn(false); setStatus('Back to the conversation.'); return;
+    }
+    if (live) { liveInterrupt(keyWordRequest()); setKeyWordOn(true); setStatus('Asking for a key word. Tap Back to talk when you are done.'); return; }
     if (usesCall()) { setStatus('Start the call first, then tap Key word.'); return; }
     handleTalk(keyWordRequest(), true, { label: 'Key word, please' });
   });
